@@ -41,7 +41,7 @@ DRIVE_FOLDER_ID = os.environ["DRIVE_FOLDER_ID"]  # ID de la carpeta "AgendaTGN -
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 
 CATEGORIES = [
     "Música", "Teatre", "Exposició", "Cinema", "Patrimoni", "Literatura",
