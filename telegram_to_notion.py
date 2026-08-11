@@ -133,10 +133,10 @@ def gemini_extract(image_bytes, mime_type="image/jpeg"):
 
 def _parse_json_response(text):
     """Neteja i interpreta la resposta de Gemini encara que vingui embolicada
-    amb ```json ... ``` o amb text addicional abans/després del JSON."""
+    amb ```json ... ```, amb text addicional al voltant, o amb contingut extra
+    després del primer objecte JSON vàlid."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
-        # Treu la primera línia (```json o ```) i l'última (```)
         lines = cleaned.split("\n")
         if lines[0].startswith("```"):
             lines = lines[1:]
@@ -147,13 +147,27 @@ def _parse_json_response(text):
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        # Última opció: agafar només el tros entre la primera '{' i l'última '}'
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            return json.loads(cleaned[start : end + 1])
-        print("Resposta de Gemini no vàlida com a JSON:", repr(text), file=sys.stderr)
-        raise
+        pass
+
+    # Busca el primer objecte JSON complet comptant claus obertes/tancades,
+    # ignorant qualsevol text (o segon objecte) que vingui després.
+    start = cleaned.find("{")
+    if start != -1:
+        depth = 0
+        for i in range(start, len(cleaned)):
+            if cleaned[i] == "{":
+                depth += 1
+            elif cleaned[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = cleaned[start : i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+
+    print("Resposta de Gemini no vàlida com a JSON:", repr(text), file=sys.stderr)
+    raise json.JSONDecodeError("No s'ha pogut interpretar la resposta de Gemini", cleaned, 0)
 
 
 def get_drive_service():
@@ -280,7 +294,8 @@ def process_photo_message(message):
         print("Error processant missatge:", repr(e), file=sys.stderr)
         telegram_send_message(
             chat_id,
-            "⚠️ Hi ha hagut un error processant la imatge. "
+            "⚠️ Hi ha hagut un error processant la imatge.\n"
+            f"Detall: {type(e).__name__}: {e}\n\n"
             "Torna-ho a provar o avisa perquè es revisi.",
         )
 
