@@ -128,7 +128,32 @@ def gemini_extract(image_bytes, mime_type="image/jpeg"):
     r = requests.post(url, headers=headers, json=payload, timeout=60)
     r.raise_for_status()
     text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    return json.loads(text)
+    return _parse_json_response(text)
+
+
+def _parse_json_response(text):
+    """Neteja i interpreta la resposta de Gemini encara que vingui embolicada
+    amb ```json ... ``` o amb text addicional abans/després del JSON."""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        # Treu la primera línia (```json o ```) i l'última (```)
+        lines = cleaned.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Última opció: agafar només el tros entre la primera '{' i l'última '}'
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(cleaned[start : end + 1])
+        print("Resposta de Gemini no vàlida com a JSON:", repr(text), file=sys.stderr)
+        raise
 
 
 def get_drive_service():
