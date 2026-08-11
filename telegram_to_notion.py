@@ -174,7 +174,13 @@ def get_drive_service():
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
 
-    info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+    try:
+        info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"El secret GOOGLE_SERVICE_ACCOUNT_JSON no és un JSON vàlid: {e}"
+        ) from e
+
     creds = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/drive"]
     )
