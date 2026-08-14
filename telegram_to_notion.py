@@ -213,8 +213,8 @@ def notion_create_page(data, image_url, filename=None):
     titol = data.get("titol") or "Sense títol"
 
     properties = {
-        "Nom provisional": {"title": [{"text": {"value": titol}}]},
-        "Titol detectat": {"rich_text": [{"text": {"value": titol}}]},
+        "Nom provisional": {"title": [{"text": {"content": titol}}]},
+        "Titol detectat": {"rich_text": [{"text": {"content": titol}}]},
         "Font": {"select": {"name": "Instagram"}},
         "Model IA": {"select": {"name": "Gemini"}},
         "URL Drive imatge": {"url": image_url},
@@ -231,30 +231,30 @@ def notion_create_page(data, image_url, filename=None):
         properties["Categoria suggerida"] = {"select": {"name": data["categoria"]}}
 
     if data.get("lloc"):
-        properties["Lloc detectat"] = {"rich_text": [{"text": {"value": data["lloc"]}}]}
+        properties["Lloc detectat"] = {"rich_text": [{"text": {"content": data["lloc"]}}]}
 
     if data.get("hora"):
-        properties["Hora detectada"] = {"rich_text": [{"text": {"value": data["hora"]}}]}
+        properties["Hora detectada"] = {"rich_text": [{"text": {"content": data["hora"]}}]}
 
     if data.get("preu"):
-        properties["Preu detectat"] = {"rich_text": [{"text": {"value": data["preu"]}}]}
+        properties["Preu detectat"] = {"rich_text": [{"text": {"content": data["preu"]}}]}
 
     if data.get("organitzador"):
-        properties["Organitzador detectat"] = {"rich_text": [{"text": {"value": data["organitzador"]}}]}
+        properties["Organitzador detectat"] = {"rich_text": [{"text": {"content": data["organitzador"]}}]}
 
     if data.get("resum_x"):
-        properties["Resum X"] = {"rich_text": [{"text": {"value": data["resum_x"]}}]}
+        properties["Resum X"] = {"rich_text": [{"text": {"content": data["resum_x"]}}]}
 
     if data.get("resum_web"):
-        properties["Resum web"] = {"rich_text": [{"text": {"value": data["resum_web"]}}]}
-        properties["Resum suggerit"] = {"rich_text": [{"text": {"value": data["resum_web"]}}]}
+        properties["Resum web"] = {"rich_text": [{"text": {"content": data["resum_web"]}}]}
+        properties["Resum suggerit"] = {"rich_text": [{"text": {"content": data["resum_web"]}}]}
 
     if data.get("text_detectat"):
         # Notion limita el text a 2000 caràcters per bloc de rich_text
-        properties["Text detectat"] = {"rich_text": [{"text": {"value": data["text_detectat"][:2000]}}]}
+        properties["Text detectat"] = {"rich_text": [{"text": {"content": data["text_detectat"][:2000]}}]}
 
     if filename:
-        properties["Nom arxiu / captura"] = {"rich_text": [{"text": {"value": filename}}]}
+        properties["Nom arxiu / captura"] = {"rich_text": [{"text": {"content": filename}}]}
 
     payload = {
         "parent": {"database_id": NOTION_DB_ID},
