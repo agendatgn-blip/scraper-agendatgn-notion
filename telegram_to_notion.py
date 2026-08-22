@@ -127,7 +127,7 @@ def gemini_extract(image_bytes, mime_type="image/jpeg"):
         ],
         "generationConfig": {"temperature": 0.1, "response_mime_type": "application/json"},
     }
-    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    r = requests.post(url, headers=headers, json=payload, timeout=120)
     r.raise_for_status()
     text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
     return _parse_json_response(text)
