@@ -216,6 +216,8 @@ def notion_create_page(data, image_url, filename=None):
         "Nom provisional": {"title": [{"text": {"content": titol}}]},
         "Font": {"select": {"name": "Instagram"}},
         "Model IA": {"select": {"name": "Gemini"}},
+        "Tipus entrada": {"select": {"name": "Captura Instagram"}},
+        "Estat revisió": {"select": {"name": "Pendent revisar"}},
         "URL Drive imatge": {"url": image_url},
         "Captura / imatge original": {
             "files": [{"name": filename or "captura.jpg", "external": {"url": image_url}}]
