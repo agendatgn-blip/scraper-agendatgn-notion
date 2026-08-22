@@ -20,6 +20,7 @@ escrit en aquest fitxer.
 """
 
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -203,6 +204,29 @@ def drive_upload(image_bytes, filename, mime_type="image/jpeg"):
     return uploaded["webViewLink"]
 
 
+def notion_find_by_hash(image_hash):
+    """Cerca si ja existeix una entrada amb aquesta mateixa empremta d'imatge
+    (evita duplicats quan s'envia per error la mateixa foto dues vegades)."""
+    headers = {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "filter": {
+            "property": "Nom arxiu / captura",
+            "rich_text": {"contains": image_hash},
+        },
+        "page_size": 1,
+    }
+    r = requests.post(
+        f"{NOTION_API}/databases/{NOTION_DB_ID}/query", headers=headers, json=payload, timeout=30
+    )
+    r.raise_for_status()
+    results = r.json().get("results", [])
+    return results[0] if results else None
+
+
 def notion_create_page(data, image_url, filename=None):
     headers = {
         "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -282,9 +306,19 @@ def process_photo_message(message):
         img_bytes, ext = telegram_download_photo(photo["file_id"])
         mime = "image/png" if ext.lower() == "png" else "image/jpeg"
 
+        image_hash = hashlib.sha256(img_bytes).hexdigest()[:16]
+        existing = notion_find_by_hash(image_hash)
+        if existing:
+            telegram_send_message(
+                chat_id,
+                "ℹ️ Aquesta imatge ja s'havia processat abans (mateixa captura exacta) — "
+                "no s'ha duplicat l'entrada a Notion.",
+            )
+            return
+
         data = gemini_extract(img_bytes, mime_type=mime)
 
-        filename = f"screenshot_{ts}.{ext}"
+        filename = f"screenshot_{image_hash}_{ts}.{ext}"
         image_url = drive_upload(img_bytes, filename, mime_type=mime)
 
         notion_create_page(data, image_url, filename=filename)
