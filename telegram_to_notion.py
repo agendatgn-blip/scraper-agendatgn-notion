@@ -214,11 +214,12 @@ def notion_create_page(data, image_url, filename=None):
 
     properties = {
         "Nom provisional": {"title": [{"text": {"content": titol}}]},
-        "Titol detectat": {"rich_text": [{"text": {"content": titol}}]},
         "Font": {"select": {"name": "Instagram"}},
         "Model IA": {"select": {"name": "Gemini"}},
         "URL Drive imatge": {"url": image_url},
-        "Captura / imatge original": {"url": image_url},
+        "Captura / imatge original": {
+            "files": [{"name": filename or "captura.jpg", "external": {"url": image_url}}]
+        },
     }
 
     if data.get("data_inici"):
