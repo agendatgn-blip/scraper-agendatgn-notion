@@ -1,0 +1,43 @@
+name: AgendaTGN · Seguiment webs
+
+on:
+  schedule:
+    # Cada 2 dies a les 05:30 UTC (07:30 a Tarragona a l'estiu).
+    # Nota: s'executa els dies senars del mes; a final de mes pot haver-hi
+    # dos dies seguits o un salt d'un dia. És una limitació coneguda del cron.
+    - cron: "30 5 */2 * *"
+  workflow_dispatch:
+    inputs:
+      mode_test:
+        description: "Mode test (no escriu res a Notion)"
+        required: false
+        default: "no"
+
+jobs:
+  scraper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Descarregar el codi
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instal·lar dependències
+        run: pip install -r requirements.txt
+
+      - name: Executar el scraper
+        working-directory: scraper
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: "gemini-3.6-flash"
+        run: |
+          if [ "${{ github.event.inputs.mode_test }}" = "si" ] || [ "${{ github.event.inputs.mode_test }}" = "sí" ]; then
+            python main.py --test
+          else
+            python main.py
+          fi
