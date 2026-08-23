@@ -1,0 +1,35 @@
+name: Publish Scheduler AgendaTGN
+
+on:
+  schedule:
+    # Cada dia a les 08:00 (hora d'Espanya, UTC+2 a l'estiu -> 06:00 UTC)
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}   # permet executar-lo manualment des de GitHub
+
+jobs:
+  run-scheduler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r scheduler/requirements.txt
+
+      - name: Run scheduler
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
+        run: python scheduler/publish_scheduler.py
