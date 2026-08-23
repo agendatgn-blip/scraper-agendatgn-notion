@@ -142,10 +142,9 @@ def mark_published(page_id, field_name):
 
 def generate_text(activity, mode):
     """mode = 'avancament' | 'dia'"""
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
     nom = activity["nom"]
     lloc = activity["lloc"]
@@ -177,7 +176,9 @@ def generate_text(activity, mode):
         f"Respon NOMÉS amb el text del tuit, sense cometes ni explicacions."
     )
 
-    response = model.generate_content(context)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash", contents=context
+    )
     return response.text.strip()
 
 
