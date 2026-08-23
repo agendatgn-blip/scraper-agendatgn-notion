@@ -60,7 +60,7 @@ TWITTER_ACCESS_SECRET = os.environ.get("TWITTER_ACCESS_SECRET")
 FACEBOOK_PAGE_ID = os.environ.get("FACEBOOK_PAGE_ID")
 FACEBOOK_PAGE_TOKEN = os.environ.get("FACEBOOK_PAGE_TOKEN")
 
-NOTION_VERSION = "2022-06-28"
+NOTION_VERSION = "2025-09-03"
 NOTION_API = "https://api.notion.com/v1"
 
 DAYS_BEFORE = 5
@@ -89,7 +89,7 @@ def notion_headers():
 
 def query_approved_activities():
     """Retorna totes les activitats amb 'Aprovada publicació' = true."""
-    url = f"{NOTION_API}/databases/{NOTION_DB_ID}/query"
+    url = f"{NOTION_API}/data_sources/{NOTION_DB_ID}/query"
     payload = {
         "filter": {
             "property": "Aprovada publicació",
