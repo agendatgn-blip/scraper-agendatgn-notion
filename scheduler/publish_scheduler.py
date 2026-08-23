@@ -177,7 +177,7 @@ def generate_text(activity, mode):
     )
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash", contents=context
+        model="gemini-3.6-flash", contents=context
     )
     return response.text.strip()
 
