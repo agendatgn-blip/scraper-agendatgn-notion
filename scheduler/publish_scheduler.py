@@ -68,6 +68,10 @@ NOTION_API = "https://api.notion.com/v1"
 
 DAYS_BEFORE = 5
 
+DIES_SETMANA_CA = [
+    "dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte", "diumenge",
+]
+
 # ---------------------------------------------------------------------------
 # Disseny de la imatge (plantilla de marca + retolat dinàmic)
 # ---------------------------------------------------------------------------
@@ -300,13 +304,16 @@ def generate_text(activity, mode):
     hora = activity["hora"]
     descripcio = activity["descripcio"]
     preu = activity["preu"]
+    data_text = activity.get("data_text", "")
 
     if mode == "avancament":
         instruccio = (
             f"Escriu un tuit curt (màxim 260 caràcters) en català anunciant "
-            f"que d'aquí a {DAYS_BEFORE} dies (o properament) tindrà lloc "
-            f"l'activitat cultural '{nom}' a Tarragona. To genuí, atractiu, "
-            f"sense hashtags excessius (màxim 2)."
+            f"que el proper {data_text} tindrà lloc l'activitat cultural "
+            f"'{nom}' a Tarragona. Fes servir aquesta data tal qual (dia de la "
+            f"setmana + número), NO diguis 'd'aquí a X dies' ni facis cap "
+            f"compte enrere. To genuí, atractiu, sense hashtags excessius "
+            f"(màxim 2)."
         )
     else:
         instruccio = (
@@ -407,6 +414,7 @@ def process_activity(page):
     data_inici = datetime.fromisoformat(data_inici_raw.split("T")[0]).date()
     avui = date.today()
     data_avancament = data_inici - timedelta(days=DAYS_BEFORE)
+    data_text = f"{DIES_SETMANA_CA[data_inici.weekday()]} dia {data_inici.day}"
 
     activity = {
         "nom": nom,
@@ -414,6 +422,7 @@ def process_activity(page):
         "hora": get_prop_text(props, "Hora") or "",
         "descripcio": get_prop_text(props, "Descripció") or "",
         "preu": get_prop_text(props, "Preu"),
+        "data_text": data_text,
     }
     categoria = get_prop_text(props, "Categoria") or ""
 
@@ -421,26 +430,27 @@ def process_activity(page):
     publicat_dia = get_prop_text(props, "Publicat Dia")
     vol_facebook = get_prop_text(props, "Facebook")
 
-    cal_publicar = (not publicat_avancament and avui <= data_inici and avui >= data_avancament) or (
-        not publicat_dia and avui == data_inici
-    )
-    image_bytes = get_activity_image_bytes(props, nom, categoria) if cal_publicar else None
+    # No té sentit publicar "avançament" el mateix dia de l'esdeveniment:
+    # el tuit de "dia" ja ho cobreix i sortirien els dos alhora.
+    cal_avancament = not publicat_avancament and avui < data_inici and avui >= data_avancament
+    cal_dia = not publicat_dia and avui == data_inici
+
+    image_bytes = get_activity_image_bytes(props, nom, categoria) if (cal_avancament or cal_dia) else None
 
     # --- Publicació "Avançament" ---
     # Es dispara si avui és exactament la data -5, o si ja hem passat
     # aquesta data (aprovació tardana) i encara no s'ha publicat,
-    # sempre que l'esdeveniment encara no hagi passat.
-    if not publicat_avancament and avui <= data_inici:
-        if avui >= data_avancament:
-            print(f"[{nom}] Generant publicació d'avançament...")
-            text = generate_text(activity, "avancament")
-            post_to_twitter(text, image_bytes=image_bytes)
-            if vol_facebook:
-                post_to_facebook(text)
-            mark_published(page_id, "Publicat Avançament")
+    # sempre que encara no sigui el mateix dia de l'esdeveniment.
+    if cal_avancament:
+        print(f"[{nom}] Generant publicació d'avançament...")
+        text = generate_text(activity, "avancament")
+        post_to_twitter(text, image_bytes=image_bytes)
+        if vol_facebook:
+            post_to_facebook(text)
+        mark_published(page_id, "Publicat Avançament")
 
     # --- Publicació "Dia" ---
-    if not publicat_dia and avui == data_inici:
+    if cal_dia:
         print(f"[{nom}] Generant publicació del dia...")
         text = generate_text(activity, "dia")
         post_to_twitter(text, image_bytes=image_bytes)
