@@ -179,9 +179,20 @@ def generate_text(activity, mode):
     response = client.chat.completions.create(
         model="openai/gpt-oss-20b",
         messages=[{"role": "user", "content": context}],
-        max_tokens=150,
+        max_tokens=200,
+        reasoning_effort="low",
     )
-    return response.choices[0].message.content.strip()
+    resultat = (response.choices[0].message.content or "").strip()
+    if not resultat:
+        # Xarxa de seguretat: si el model no retorna text (per exemple,
+        # tot el contingut ha anat al "raonament"), fem servir un text
+        # simple generat directament a partir de les dades, per no perdre
+        # la publicació.
+        if mode == "avancament":
+            resultat = f"📅 D'aquí a {DAYS_BEFORE} dies: {nom}, a {lloc}. No t'ho perdis!"
+        else:
+            resultat = f"📅 AVUI: {nom}, a {lloc} ({hora}). T'hi esperem!"
+    return resultat
 
 
 # ---------------------------------------------------------------------------
@@ -197,8 +208,12 @@ def post_to_twitter(text):
         access_token=TWITTER_ACCESS_TOKEN,
         access_token_secret=TWITTER_ACCESS_SECRET,
     )
-    client.create_tweet(text=text)
-    print(f"  -> Publicat a X: {text[:60]}...")
+    try:
+        client.create_tweet(text=text)
+        print(f"  -> Publicat a X: {text[:60]}...")
+    except Exception as e:
+        print(f"  -> ERROR detallat de X: {repr(e)}")
+        raise
 
 
 def post_to_facebook(text):
