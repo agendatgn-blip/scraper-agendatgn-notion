@@ -71,7 +71,9 @@ DAYS_BEFORE = 5
 # ---------------------------------------------------------------------------
 # Disseny de la imatge (plantilla de marca + retolat dinàmic)
 # ---------------------------------------------------------------------------
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+ASSETS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets"
+)
 TEMPLATE_PATH = os.path.join(ASSETS_DIR, "base_template.png")
 FONT_PATH = os.path.join(ASSETS_DIR, "Anton-Regular.ttf")
 CANVAS_SIZE = (1600, 900)
