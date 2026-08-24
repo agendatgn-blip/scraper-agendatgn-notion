@@ -64,11 +64,9 @@ Retorna NOMÉS un JSON vàlid (sense text addicional, sense ```), amb aquests ca
   "hora": "HH:MM o null si no es veu",
   "lloc": "nom del lloc/espai",
   "categoria": "una EXACTAMENT d'aquesta llista: {", ".join(CATEGORIES)}",
-  "resum_x": "frase curta estil tuit (màxim ~200 caràcters) que resumeixi l'activitat de forma atractiva",
   "resum_web": "resum més ampli (2-3 frases) per a una fitxa web",
   "preu": "text tal qual apareix (p.ex. 'Gratuït', '8€') o null",
   "organitzador": "entitat organitzadora si es veu, si no null",
-  "text_detectat": "tot el text llegible que es veu a la imatge, transcrit tal qual",
   "requadre_cartell": {{
     "x_min": 0, "y_min": 0, "x_max": 1000, "y_max": 1000
   }}
@@ -332,16 +330,8 @@ def notion_create_page(data, image_url, filename=None):
     if data.get("organitzador"):
         properties["Organitzador detectat"] = {"rich_text": [{"text": {"content": data["organitzador"]}}]}
 
-    if data.get("resum_x"):
-        properties["Resum X"] = {"rich_text": [{"text": {"content": data["resum_x"]}}]}
-
     if data.get("resum_web"):
         properties["Resum web"] = {"rich_text": [{"text": {"content": data["resum_web"]}}]}
-        properties["Resum suggerit"] = {"rich_text": [{"text": {"content": data["resum_web"]}}]}
-
-    if data.get("text_detectat"):
-        # Notion limita el text a 2000 caràcters per bloc de rich_text
-        properties["Text detectat"] = {"rich_text": [{"text": {"content": data["text_detectat"][:2000]}}]}
 
     if filename:
         properties["Nom arxiu / captura"] = {"rich_text": [{"text": {"content": filename}}]}
