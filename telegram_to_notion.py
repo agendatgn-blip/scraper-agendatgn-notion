@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 import requests
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # Configuració — es llegeix de variables d'entorn (mai escrita aquí)
@@ -67,10 +68,23 @@ Retorna NOMÉS un JSON vàlid (sense text addicional, sense ```), amb aquests ca
   "resum_web": "resum més ampli (2-3 frases) per a una fitxa web",
   "preu": "text tal qual apareix (p.ex. 'Gratuït', '8€') o null",
   "organitzador": "entitat organitzadora si es veu, si no null",
-  "text_detectat": "tot el text llegible que es veu a la imatge, transcrit tal qual"
+  "text_detectat": "tot el text llegible que es veu a la imatge, transcrit tal qual",
+  "requadre_cartell": {{
+    "x_min": 0, "y_min": 0, "x_max": 1000, "y_max": 1000
+  }}
 }}
 
-Si algun camp no es pot determinar amb la imatge, posa null. No inventis dades.
+Pel camp "requadre_cartell": la captura de pantalla pot incloure, a més del cartell/publicació
+en si, elements d'interfície al voltant (barra d'estat del mòbil, interfície d'Instagram/
+WhatsApp, altres publicacions parcials per dalt o per baix, etc.). Aquest camp ha de marcar
+NOMÉS el requadre que conté el cartell/imatge de l'activitat en si, EXCLOENT qualsevol
+interfície o contingut aliè.
+Fes servir coordenades normalitzades de 0 a 1000 (0 = vora superior/esquerra de la imatge
+sencera, 1000 = vora inferior/dreta), on x_min < x_max i y_min < y_max.
+Si la imatge ja és nomès el cartell net (sense res més al voltant), retorna
+{{"x_min": 0, "y_min": 0, "x_max": 1000, "y_max": 1000}}.
+
+Si algun altre camp no es pot determinar amb la imatge, posa null. No inventis dades.
 La categoria HA de ser exactament una de la llista, sense variacions ni accents diferents."""
 
 
@@ -171,6 +185,55 @@ def _parse_json_response(text):
 
     print("Resposta de Gemini no vàlida com a JSON:", repr(text), file=sys.stderr)
     raise json.JSONDecodeError("No s'ha pogut interpretar la resposta de Gemini", cleaned, 0)
+
+
+def crop_to_poster(image_bytes, bbox, mime_type="image/jpeg"):
+    """Retalla la imatge al requadre del cartell indicat per Gemini.
+
+    bbox ve amb coordenades normalitzades 0-1000. Si el requadre no és vàlid
+    (falta, és massa petit, o cobreix pràcticament tota la imatge), es
+    retorna la imatge original sense tocar — mai fallem la pujada per un
+    retall dubtós.
+    """
+    if not bbox:
+        return image_bytes
+
+    try:
+        x_min = int(bbox.get("x_min", 0))
+        y_min = int(bbox.get("y_min", 0))
+        x_max = int(bbox.get("x_max", 1000))
+        y_max = int(bbox.get("y_max", 1000))
+    except (TypeError, ValueError):
+        return image_bytes
+
+    # Si el requadre és pràcticament tota la imatge, no cal retallar.
+    if x_min <= 5 and y_min <= 5 and x_max >= 995 and y_max >= 995:
+        return image_bytes
+
+    # Validació bàsica: requadre coherent i amb una mida mínima raonable.
+    if not (0 <= x_min < x_max <= 1000 and 0 <= y_min < y_max <= 1000):
+        return image_bytes
+    if (x_max - x_min) < 100 or (y_max - y_min) < 100:
+        return image_bytes
+
+    try:
+        img = Image.open(BytesIO(image_bytes))
+        w, h = img.size
+        left = round(x_min / 1000 * w)
+        top = round(y_min / 1000 * h)
+        right = round(x_max / 1000 * w)
+        bottom = round(y_max / 1000 * h)
+        cropped = img.crop((left, top, right, bottom))
+
+        out = BytesIO()
+        fmt = "PNG" if mime_type == "image/png" else "JPEG"
+        if fmt == "JPEG" and cropped.mode in ("RGBA", "P"):
+            cropped = cropped.convert("RGB")
+        cropped.save(out, format=fmt, quality=92 if fmt == "JPEG" else None)
+        return out.getvalue()
+    except Exception as e:  # noqa: BLE001
+        print("Avís: no s'ha pogut retallar la imatge, es puja sencera:", repr(e), file=sys.stderr)
+        return image_bytes
 
 
 def get_drive_service():
@@ -318,8 +381,10 @@ def process_photo_message(message):
 
         data = gemini_extract(img_bytes, mime_type=mime)
 
+        upload_bytes = crop_to_poster(img_bytes, data.get("requadre_cartell"), mime_type=mime)
+
         filename = f"screenshot_{image_hash}_{ts}.{ext}"
-        image_url = drive_upload(img_bytes, filename, mime_type=mime)
+        image_url = drive_upload(upload_bytes, filename, mime_type=mime)
 
         notion_create_page(data, image_url, filename=filename)
 
