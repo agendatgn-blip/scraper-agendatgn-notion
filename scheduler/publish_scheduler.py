@@ -35,14 +35,17 @@ Dependències (requirements.txt):
   requests
   groq
   tweepy
+  Pillow
 """
 
 import os
 import sys
 import json
 from datetime import datetime, date, timedelta
+from io import BytesIO
 
 import requests
+from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------------------------
 # Configuració
@@ -64,6 +67,33 @@ NOTION_VERSION = "2025-09-03"
 NOTION_API = "https://api.notion.com/v1"
 
 DAYS_BEFORE = 5
+
+# ---------------------------------------------------------------------------
+# Disseny de la imatge (plantilla de marca + retolat dinàmic)
+# ---------------------------------------------------------------------------
+ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+TEMPLATE_PATH = os.path.join(ASSETS_DIR, "base_template.png")
+FONT_PATH = os.path.join(ASSETS_DIR, "Anton-Regular.ttf")
+CANVAS_SIZE = (1600, 900)
+BRAND_YELLOW = (255, 220, 0)
+
+CATEGORY_COLORS = {
+    "Música": (230, 57, 70),
+    "Teatre": (106, 27, 154),
+    "Exposició": (21, 101, 192),
+    "Cinema": (78, 52, 46),
+    "Patrimoni": (96, 96, 96),
+    "Literatura": (230, 126, 34),
+    "Familiar": (216, 27, 96),
+    "Taller": (204, 153, 0),
+    "Gastronomia": (56, 142, 60),
+    "Mercat": (56, 142, 60),
+    "Conferència": (69, 90, 100),
+    "Altres": (33, 33, 33),
+    "Dansa": (173, 20, 87),
+    "Art": (25, 118, 210),
+    "Festa popular": (216, 67, 21),
+}
 
 REQUIRED_ENV = ["NOTION_TOKEN", "NOTION_ACTIVITATS_DB_ID", "GROQ_API_KEY"]
 
@@ -137,7 +167,124 @@ def mark_published(page_id, field_name):
 
 
 # ---------------------------------------------------------------------------
-# Generació de text amb Gemini
+# Imatge: obtenir la de Notion, encaixar-la, o generar la plantilla de marca
+# ---------------------------------------------------------------------------
+
+def get_notion_image_url(props):
+    """Retorna la URL del primer fitxer del camp 'Imatge' de Notion, si n'hi ha."""
+    prop = props.get("Imatge")
+    if not prop or prop.get("type") != "files" or not prop.get("files"):
+        return None
+    f = prop["files"][0]
+    if f.get("type") == "external":
+        return f["external"]["url"]
+    if f.get("type") == "file":
+        return f["file"]["url"]
+    return None
+
+
+def fit_image_contain(image_bytes, canvas_size=CANVAS_SIZE, bg_color=BRAND_YELLOW):
+    """Encaixa la imatge sencera (sense retallar res) centrada dins del
+    format 1600x900, omplint l'espai sobrant amb el groc de marca."""
+    img = Image.open(BytesIO(image_bytes))
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    canvas = Image.new("RGB", canvas_size, bg_color)
+    fitted = img.copy()
+    fitted.thumbnail(canvas_size, Image.LANCZOS)
+    x = (canvas_size[0] - fitted.width) // 2
+    y = (canvas_size[1] - fitted.height) // 2
+    canvas.paste(fitted, (x, y))
+    out = BytesIO()
+    canvas.save(out, format="PNG")
+    return out.getvalue()
+
+
+def _wrap_text(draw, text, font, max_width):
+    """Parteix el text en línies que caben dins max_width, amb aquest font."""
+    words = text.split()
+    lines = []
+    current = ""
+    for word in words:
+        test = f"{current} {word}".strip()
+        if draw.textlength(test, font=font) <= max_width:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def generate_template_image(nom, categoria):
+    """Genera la imatge de marca genèrica amb el nom de l'activitat i la
+    categoria retolats a sobre de la plantilla base."""
+    img = Image.open(TEMPLATE_PATH).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    # --- Etiqueta de categoria ---
+    if categoria:
+        color = CATEGORY_COLORS.get(categoria, (33, 33, 33))
+        tag_font = ImageFont.truetype(FONT_PATH, 34)
+        pad_x, pad_y = 24, 12
+        text_w = draw.textlength(categoria.upper(), font=tag_font)
+        tag_x, tag_y = 60, 250
+        draw.rounded_rectangle(
+            [tag_x, tag_y, tag_x + text_w + pad_x * 2, tag_y + 34 + pad_y * 2],
+            radius=8,
+            fill=color,
+        )
+        draw.text(
+            (tag_x + pad_x, tag_y + pad_y - 2),
+            categoria.upper(),
+            font=tag_font,
+            fill=(255, 255, 255),
+        )
+
+    # --- Títol de l'activitat (mida adaptativa segons llargada) ---
+    max_width = 1480
+    title = (nom or "").upper()
+    font_size = 110
+    lines = []
+    while font_size > 44:
+        title_font = ImageFont.truetype(FONT_PATH, font_size)
+        lines = _wrap_text(draw, title, title_font, max_width)
+        line_height = font_size * 1.15
+        total_height = line_height * len(lines)
+        if len(lines) <= 3 and total_height <= 380:
+            break
+        font_size -= 6
+    title_font = ImageFont.truetype(FONT_PATH, font_size)
+    line_height = font_size * 1.15
+
+    start_y = 360
+    for i, line in enumerate(lines):
+        draw.text((60, start_y + i * line_height), line, font=title_font, fill=(20, 20, 20))
+
+    out = BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+def get_activity_image_bytes(props, nom, categoria):
+    """Retorna els bytes de la imatge final a publicar: la pròpia de
+    l'activitat (encaixada sobre fons de marca) si n'hi ha, o la plantilla
+    genèrica generada amb el títol i la categoria si no."""
+    notion_url = get_notion_image_url(props)
+    if notion_url:
+        try:
+            resp = requests.get(notion_url, timeout=30)
+            resp.raise_for_status()
+            return fit_image_contain(resp.content)
+        except Exception as e:  # noqa: BLE001
+            print(f"  -> Avís: no s'ha pogut baixar la imatge de Notion ({e}), es fa servir la plantilla genèrica.")
+    return generate_template_image(nom, categoria)
+
+
+# ---------------------------------------------------------------------------
+# Generació de text amb Groq
 # ---------------------------------------------------------------------------
 
 def generate_text(activity, mode):
@@ -199,7 +346,7 @@ def generate_text(activity, mode):
 # Publicació a X (Twitter)
 # ---------------------------------------------------------------------------
 
-def post_to_twitter(text):
+def post_to_twitter(text, image_bytes=None):
     import tweepy
 
     client = tweepy.Client(
@@ -209,7 +356,17 @@ def post_to_twitter(text):
         access_token_secret=TWITTER_ACCESS_SECRET,
     )
     try:
-        client.create_tweet(text=text)
+        media_ids = None
+        if image_bytes:
+            auth = tweepy.OAuth1UserHandler(
+                TWITTER_API_KEY, TWITTER_API_SECRET,
+                TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET,
+            )
+            api_v1 = tweepy.API(auth)
+            media = api_v1.media_upload(filename="imatge.png", file=BytesIO(image_bytes))
+            media_ids = [media.media_id]
+
+        client.create_tweet(text=text, media_ids=media_ids)
         print(f"  -> Publicat a X: {text[:60]}...")
     except Exception as e:
         print(f"  -> ERROR detallat de X: {repr(e)}")
@@ -256,10 +413,16 @@ def process_activity(page):
         "descripcio": get_prop_text(props, "Descripció") or "",
         "preu": get_prop_text(props, "Preu"),
     }
+    categoria = get_prop_text(props, "Categoria") or ""
 
     publicat_avancament = get_prop_text(props, "Publicat Avançament")
     publicat_dia = get_prop_text(props, "Publicat Dia")
     vol_facebook = get_prop_text(props, "Facebook")
+
+    cal_publicar = (not publicat_avancament and avui <= data_inici and avui >= data_avancament) or (
+        not publicat_dia and avui == data_inici
+    )
+    image_bytes = get_activity_image_bytes(props, nom, categoria) if cal_publicar else None
 
     # --- Publicació "Avançament" ---
     # Es dispara si avui és exactament la data -5, o si ja hem passat
@@ -269,7 +432,7 @@ def process_activity(page):
         if avui >= data_avancament:
             print(f"[{nom}] Generant publicació d'avançament...")
             text = generate_text(activity, "avancament")
-            post_to_twitter(text)
+            post_to_twitter(text, image_bytes=image_bytes)
             if vol_facebook:
                 post_to_facebook(text)
             mark_published(page_id, "Publicat Avançament")
@@ -278,7 +441,7 @@ def process_activity(page):
     if not publicat_dia and avui == data_inici:
         print(f"[{nom}] Generant publicació del dia...")
         text = generate_text(activity, "dia")
-        post_to_twitter(text)
+        post_to_twitter(text, image_bytes=image_bytes)
         if vol_facebook:
             post_to_facebook(text)
         mark_published(page_id, "Publicat Dia")
