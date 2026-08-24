@@ -23,7 +23,7 @@ Cada dia (via GitHub Actions cron), aquest script:
 Variables d'entorn necessàries (GitHub Actions Secrets):
   NOTION_TOKEN            - Integration token de Notion amb accés a la BD
   NOTION_ACTIVITATS_DB_ID - ID de la data source "Activitats"
-  GEMINI_API_KEY          - Clau de Google AI Studio
+  GROQ_API_KEY            - Clau de console.groq.com
   TWITTER_API_KEY
   TWITTER_API_SECRET
   TWITTER_ACCESS_TOKEN
@@ -33,7 +33,7 @@ Variables d'entorn necessàries (GitHub Actions Secrets):
 
 Dependències (requirements.txt):
   requests
-  google-generativeai
+  groq
   tweepy
 """
 
@@ -50,7 +50,7 @@ import requests
 
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 NOTION_DB_ID = os.environ.get("NOTION_ACTIVITATS_DB_ID")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 TWITTER_API_KEY = os.environ.get("TWITTER_API_KEY")
 TWITTER_API_SECRET = os.environ.get("TWITTER_API_SECRET")
@@ -65,7 +65,7 @@ NOTION_API = "https://api.notion.com/v1"
 
 DAYS_BEFORE = 5
 
-REQUIRED_ENV = ["NOTION_TOKEN", "NOTION_ACTIVITATS_DB_ID", "GEMINI_API_KEY"]
+REQUIRED_ENV = ["NOTION_TOKEN", "NOTION_ACTIVITATS_DB_ID", "GROQ_API_KEY"]
 
 
 def check_env():
@@ -142,9 +142,9 @@ def mark_published(page_id, field_name):
 
 def generate_text(activity, mode):
     """mode = 'avancament' | 'dia'"""
-    from google import genai
+    from groq import Groq
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = Groq(api_key=GROQ_API_KEY)
 
     nom = activity["nom"]
     lloc = activity["lloc"]
@@ -176,10 +176,12 @@ def generate_text(activity, mode):
         f"Respon NOMÉS amb el text del tuit, sense cometes ni explicacions."
     )
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash", contents=context
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-20b",
+        messages=[{"role": "user", "content": context}],
+        max_tokens=150,
     )
-    return response.text.strip()
+    return response.choices[0].message.content.strip()
 
 
 # ---------------------------------------------------------------------------
