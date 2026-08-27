@@ -25,6 +25,6 @@ jobs:
       - name: Run sync
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+          NOTION_INBOX_DATASOURCE_ID: ${{ secrets.NOTION_INBOX_DATASOURCE_ID }}
           NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
         run: python inbox_sync/inbox_to_activitats.py
