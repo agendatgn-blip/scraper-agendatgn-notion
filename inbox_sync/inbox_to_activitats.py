@@ -18,9 +18,9 @@ publicació" es deixa sense marcar a propòsit. Cal revisar-la i aprovar-la
 manualment (o des del futur dashboard) abans que el scheduler la publiqui.
 
 Variables d'entorn necessàries (GitHub Actions Secrets):
-  NOTION_TOKEN            - Integration token de Notion
-  NOTION_DB_ID            - ID de la base INBOX AGENDA (ja existent al repo)
-  NOTION_ACTIVITATS_DB_ID - ID de la data source "Activitats" (ja existent)
+  NOTION_TOKEN                 - Integration token de Notion
+  NOTION_INBOX_DATASOURCE_ID   - ID de la data source d'INBOX AGENDA (nou)
+  NOTION_ACTIVITATS_DB_ID      - ID de la data source "Activitats" (ja existent)
 
 Dependències (requirements.txt):
   requests
@@ -38,7 +38,7 @@ import requests
 # ---------------------------------------------------------------------------
 
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
-INBOX_DB_ID = os.environ["NOTION_DB_ID"]
+INBOX_DB_ID = os.environ["NOTION_INBOX_DATASOURCE_ID"]
 ACTIVITATS_DB_ID = os.environ["NOTION_ACTIVITATS_DB_ID"]
 
 NOTION_VERSION = "2025-09-03"
@@ -48,7 +48,7 @@ NOTION_API = "https://api.notion.com/v1"
 # es podrien mapejar aquí. Ara mateix totes coincideixen 1:1.
 CATEGORY_MAP = {}
 
-REQUIRED_ENV = ["NOTION_TOKEN", "NOTION_DB_ID", "NOTION_ACTIVITATS_DB_ID"]
+REQUIRED_ENV = ["NOTION_TOKEN", "NOTION_INBOX_DATASOURCE_ID", "NOTION_ACTIVITATS_DB_ID"]
 
 
 def check_env():
