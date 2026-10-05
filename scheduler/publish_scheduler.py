@@ -14,9 +14,10 @@ Cada dia (via GitHub Actions cron), aquest script:
    - Publicació "Dia" (el dia de l'esdeveniment):
        - Si avui == Data inici -> es dispara.
 3. Genera el text amb Gemini (variant segons avançament/dia).
-4. Publica a X (Twitter) i, si el checkbox "Facebook" és cert i les
-   credencials de Facebook estan configurades, també a la Pàgina de
-   Facebook via Graph API.
+4. Publica a X (Twitter) i, si el checkbox "Facebook" és cert:
+   - a la Pàgina de Facebook (Graph API, amb imatge), i
+   - t'envia el mateix post per Telegram per copiar-lo al GRUP de Facebook
+     (Meta no permet publicar en grups per API des d'abril de 2024).
 5. Marca a Notion "Publicat Avançament" / "Publicat Dia" = True perquè
    no es dupliqui si l'script torna a córrer el mateix dia.
 
@@ -28,8 +29,10 @@ Variables d'entorn necessàries (GitHub Actions Secrets):
   TWITTER_API_SECRET
   TWITTER_ACCESS_TOKEN
   TWITTER_ACCESS_SECRET
-  FACEBOOK_PAGE_ID        - (opcional, fase 2)
-  FACEBOOK_PAGE_TOKEN     - (opcional, fase 2)
+  FACEBOOK_PAGE_ID        - (opcional) id de la Pàgina
+  FACEBOOK_PAGE_TOKEN     - (opcional) token de Pàgina que no caduca
+  TELEGRAM_BOT_TOKEN      - (opcional) el mateix bot de les captures
+  TELEGRAM_CHAT_ID        - (opcional) el teu id de Telegram
 
 Dependències (requirements.txt):
   requests
@@ -62,6 +65,12 @@ TWITTER_ACCESS_SECRET = os.environ.get("TWITTER_ACCESS_SECRET")
 
 FACEBOOK_PAGE_ID = os.environ.get("FACEBOOK_PAGE_ID")
 FACEBOOK_PAGE_TOKEN = os.environ.get("FACEBOOK_PAGE_TOKEN")
+FACEBOOK_API_VERSION = "v26.0"
+
+# Telegram: t'envia cada post de Facebook perquè el copiïs al GRUP
+# (Meta no permet publicar en grups via API des de 2024)
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 NOTION_VERSION = "2025-09-03"
 NOTION_API = "https://api.notion.com/v1"
@@ -345,7 +354,7 @@ def generate_text(activity, mode):
         # simple generat directament a partir de les dades, per no perdre
         # la publicació.
         if mode == "avancament":
-            resultat = f"📅 D'aquí a {DAYS_BEFORE} dies: {nom}, a {lloc}. No t'ho perdis!"
+            resultat = f"📅 El proper {data_text}: {nom}, a {lloc}. No t'ho perdis!"
         else:
             resultat = f"📅 AVUI: {nom}, a {lloc} ({hora}). T'hi esperem!"
     return resultat
@@ -382,25 +391,93 @@ def post_to_twitter(text, image_bytes=None):
         raise
 
 
-def post_to_facebook(text):
+def facebook_text(text, activity):
+    """El text del tuit + una línia de dades pràctiques (a Facebook hi cap més)."""
+    parts = []
+    if activity.get("data_text"):
+        parts.append(f"📅 {activity['data_text'].capitalize()}")
+    if activity.get("hora"):
+        parts.append(f"🕒 {activity['hora']}")
+    if activity.get("lloc"):
+        parts.append(f"📍 {activity['lloc']}")
+    preu = activity.get("preu_text")
+    if preu:
+        parts.append(f"💶 {preu}")
+    detall = " · ".join(parts)
+    return f"{text}\n\n{detall}" if detall else text
+
+
+def post_to_facebook(text, image_bytes=None):
+    """Publica a la Pàgina de Facebook. Amb imatge si n'hi ha."""
     if not (FACEBOOK_PAGE_ID and FACEBOOK_PAGE_TOKEN):
-        print("  -> Facebook no configurat encara (fase 2), s'omet.")
+        print("  -> Facebook no configurat encara, s'omet.")
         return
-    url = f"https://graph.facebook.com/v19.0/{FACEBOOK_PAGE_ID}/feed"
-    resp = requests.post(
-        url,
-        data={"message": text, "access_token": FACEBOOK_PAGE_TOKEN},
-        timeout=30,
-    )
+    base = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}/{FACEBOOK_PAGE_ID}"
+    if image_bytes:
+        resp = requests.post(
+            f"{base}/photos",
+            data={"caption": text, "published": "true", "access_token": FACEBOOK_PAGE_TOKEN},
+            files={"source": ("imatge.png", image_bytes, "image/png")},
+            timeout=60,
+        )
+    else:
+        resp = requests.post(
+            f"{base}/feed",
+            data={"message": text, "access_token": FACEBOOK_PAGE_TOKEN},
+            timeout=30,
+        )
     if resp.status_code >= 300:
         print(f"  -> ERROR Facebook: {resp.text}")
     else:
-        print(f"  -> Publicat a Facebook: {text[:60]}...")
+        print(f"  -> Publicat a la Pàgina de Facebook: {text[:60]}...")
+
+
+def send_to_telegram_for_group(text, image_bytes=None):
+    """T'envia el post per Telegram, llest per copiar i enganxar al grup de FB."""
+    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        return
+    api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+    capcalera = "👥 Per al GRUP de Facebook (copia i enganxa):\n\n"
+    try:
+        if image_bytes:
+            caption = (capcalera + text)[:1024]
+            requests.post(
+                f"{api}/sendPhoto",
+                data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption},
+                files={"photo": ("imatge.png", image_bytes, "image/png")},
+                timeout=60,
+            ).raise_for_status()
+        else:
+            requests.post(
+                f"{api}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": capcalera + text},
+                timeout=30,
+            ).raise_for_status()
+        print("  -> Enviat a Telegram per al grup de Facebook.")
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Avís: no s'ha pogut enviar a Telegram ({e}).")
+
+
+def publish_everywhere(text, image_bytes, activity, vol_facebook):
+    post_to_twitter(text, image_bytes=image_bytes)
+    if vol_facebook:
+        fb = facebook_text(text, activity)
+        post_to_facebook(fb, image_bytes=image_bytes)
+        send_to_telegram_for_group(fb, image_bytes=image_bytes)
 
 
 # ---------------------------------------------------------------------------
 # Lògica principal
 # ---------------------------------------------------------------------------
+
+def _preu_llegible(preu):
+    if preu is None or preu == "":
+        return ""
+    try:
+        return "Gratuït" if float(preu) == 0 else f"{float(preu):g} €"
+    except (TypeError, ValueError):
+        return str(preu)
+
 
 def process_activity(page):
     props = page["properties"]
@@ -423,6 +500,7 @@ def process_activity(page):
         "descripcio": get_prop_text(props, "Descripció") or "",
         "preu": get_prop_text(props, "Preu"),
         "data_text": data_text,
+        "preu_text": get_prop_text(props, "Preu (text)") or _preu_llegible(get_prop_text(props, "Preu")),
     }
     categoria = get_prop_text(props, "Categoria") or ""
 
@@ -444,18 +522,14 @@ def process_activity(page):
     if cal_avancament:
         print(f"[{nom}] Generant publicació d'avançament...")
         text = generate_text(activity, "avancament")
-        post_to_twitter(text, image_bytes=image_bytes)
-        if vol_facebook:
-            post_to_facebook(text)
+        publish_everywhere(text, image_bytes, activity, vol_facebook)
         mark_published(page_id, "Publicat Avançament")
 
     # --- Publicació "Dia" ---
     if cal_dia:
         print(f"[{nom}] Generant publicació del dia...")
         text = generate_text(activity, "dia")
-        post_to_twitter(text, image_bytes=image_bytes)
-        if vol_facebook:
-            post_to_facebook(text)
+        publish_everywhere(text, image_bytes, activity, vol_facebook)
         mark_published(page_id, "Publicat Dia")
 
 
