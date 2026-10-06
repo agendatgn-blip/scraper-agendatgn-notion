@@ -7,8 +7,10 @@ Cada dia (via GitHub Actions cron), aquest script:
 1. Consulta 📥 INBOX AGENDA i busca entrades amb "Estat revisió" = "Validada"
    que encara no tinguin cap activitat vinculada ("Activitat creada" buit).
 2. Per cada una, crea una fila nova a la base "Activitats" traduint els
-   camps detectats (títol, data, hora, lloc, categoria, preu, organitzador,
-   descripció i imatge).
+   camps detectats (títol, dates, hora, lloc, categoria, preu, organitzador,
+   descripció i imatge) i l'enllaça amb el seu 🎪 Programa (festival, cicle,
+   festa de barri...) a partir de "Programa detectat". Si el programa no
+   existeix, el crea sense agrupar i marcat "Creat automàticament".
 3. Enllaça la nova fila des del camp "Activitat creada" de l'entrada
    d'INBOX, i marca "Estat revisió" = "Convertida en activitat" perquè no
    es torni a processar.
@@ -40,6 +42,9 @@ import requests
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 INBOX_DB_ID = os.environ["NOTION_INBOX_DATASOURCE_ID"]
 ACTIVITATS_DB_ID = os.environ["NOTION_ACTIVITATS_DB_ID"]
+
+# 🎪 Programes (festivals, cicles, festes de barri...). Es pot sobreescriure per secret.
+PROGRAMES_DS_ID = os.environ.get("NOTION_PROGRAMES_DS_ID") or "7adf4d3a-6ed6-483b-ade4-be5286ebc087"
 
 NOTION_VERSION = "2025-09-03"
 NOTION_API = "https://api.notion.com/v1"
@@ -115,6 +120,78 @@ def get_prop_text(props, name):
     return None
 
 
+def get_date_end(props, name):
+    prop = props.get(name) or {}
+    d = prop.get("date") or {}
+    return d.get("end")
+
+
+# ---------------------------------------------------------------------------
+# 🎪 Programes
+# ---------------------------------------------------------------------------
+
+def _norm(t):
+    t = (t or "").lower()
+    for a, b in (("à", "a"), ("á", "a"), ("è", "e"), ("é", "e"), ("í", "i"), ("ï", "i"),
+                 ("ò", "o"), ("ó", "o"), ("ú", "u"), ("ü", "u"), ("ç", "c"), ("·", "")):
+        t = t.replace(a, b)
+    return re.sub(r"[^a-z0-9]+", "", t)
+
+
+def load_programes():
+    """{nom_normalitzat: page_id} amb el Nom i tots els Àlies de cada programa."""
+    url = f"{NOTION_API}/data_sources/{PROGRAMES_DS_ID}/query"
+    payload, index = {"page_size": 100}, {}
+    while True:
+        resp = requests.post(url, headers=notion_headers(), json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        for page in data.get("results", []):
+            props = page["properties"]
+            noms = [get_prop_text(props, "Nom") or ""]
+            noms += (get_prop_text(props, "Àlies") or "").split(",")
+            for nom in noms:
+                if _norm(nom):
+                    index[_norm(nom)] = page["id"]
+        if data.get("has_more"):
+            payload["start_cursor"] = data["next_cursor"]
+        else:
+            break
+    return index
+
+
+def create_programa(nom):
+    payload = {
+        "parent": {"data_source_id": PROGRAMES_DS_ID},
+        "properties": {
+            "Nom": {"title": [{"text": {"content": nom[:200]}}]},
+            "Creat automàticament": {"checkbox": True},
+            "Agrupar en publicacions": {"checkbox": False},
+        },
+    }
+    resp = requests.post(f"{NOTION_API}/pages", headers=notion_headers(), json=payload, timeout=30)
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
+def programes_de(text, index):
+    """'Tarragona Sona Flamenc, Arts escèniques TGN Cultura' -> [page_id, ...].
+    Els programes que no existeixen es creen (sense agrupar) perquè els revisis."""
+    ids = []
+    for nom in (text or "").split(","):
+        nom = nom.strip()
+        if not _norm(nom):
+            continue
+        pid = index.get(_norm(nom))
+        if not pid:
+            pid = create_programa(nom)
+            index[_norm(nom)] = pid
+            print(f"     · Programa nou creat per revisar: «{nom}»")
+        if pid not in ids:
+            ids.append(pid)
+    return ids
+
+
 def parse_preu(preu_text):
     """Interpreta el text lliure de 'Preu detectat' (p.ex. '8€', 'Gratuït')
     i en treu un número, si es pot. Si no es pot determinar, retorna None."""
@@ -132,7 +209,7 @@ def parse_preu(preu_text):
     return None
 
 
-def build_activitat_properties(inbox_props):
+def build_activitat_properties(inbox_props, programes_index=None):
     titol = (
         get_prop_text(inbox_props, "Títol detectat")
         or get_prop_text(inbox_props, "Nom provisional")
@@ -146,6 +223,10 @@ def build_activitat_properties(inbox_props):
     data_detectada = get_prop_text(inbox_props, "Data detectada")
     if data_detectada:
         properties["Data inici"] = {"date": {"start": data_detectada.split("T")[0]}}
+        data_fi = get_date_end(inbox_props, "Data detectada")
+        if data_fi and data_fi.split("T")[0] > data_detectada.split("T")[0]:
+            properties["Data final"] = {"date": {"start": data_fi.split("T")[0]}}
+            properties["Tipus durada"] = {"select": {"name": "Diversos dies"}}
 
     lloc = get_prop_text(inbox_props, "Lloc detectat")
     if lloc:
@@ -168,6 +249,14 @@ def build_activitat_properties(inbox_props):
     preu_num = parse_preu(preu_text)
     if preu_num is not None:
         properties["Preu"] = {"number": preu_num}
+    if preu_text and "pendent" not in preu_text.lower():
+        properties["Preu (text)"] = {"rich_text": [{"text": {"content": preu_text[:200]}}]}
+
+    programa = get_prop_text(inbox_props, "Programa detectat")
+    if programa and programes_index is not None:
+        ids = programes_de(programa, programes_index)
+        if ids:
+            properties["Programa"] = {"relation": [{"id": i} for i in ids]}
 
     descripcio = get_prop_text(inbox_props, "Resum web")
     if descripcio:
@@ -218,11 +307,18 @@ def main():
     entries = query_validated_inbox_entries()
     print(f"Entrades validades pendents de convertir: {len(entries)}")
 
+    try:
+        programes_index = load_programes()
+        print(f"Programes coneguts (noms + àlies): {len(programes_index)}")
+    except Exception as e:  # noqa: BLE001
+        programes_index = None
+        print(f"AVÍS: no s'han pogut llegir els 🎪 Programes ({e}). Es continua sense enllaçar-los.")
+
     for entry in entries:
         props = entry["properties"]
         titol = get_prop_text(props, "Títol detectat") or get_prop_text(props, "Nom provisional") or "(sense títol)"
         try:
-            activitat_props = build_activitat_properties(props)
+            activitat_props = build_activitat_properties(props, programes_index)
             nova_activitat = create_activitat(activitat_props)
             mark_inbox_converted(entry["id"], nova_activitat["id"])
             print(f"  -> Convertida: «{titol}»")
