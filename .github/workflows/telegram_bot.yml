@@ -1,9 +1,14 @@
 name: Telegram → Notion (pantallazos)
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"   # cada 5 minuts
-  workflow_dispatch: {}       # permet executar-ho manualment des de GitHub
+  # Es llança cada hora des de cron-job.org (API workflow_dispatch).
+  # El cron intern de GitHub era massa irregular (3-6 execucions/dia).
+  workflow_dispatch: {}       # també permet executar-ho manualment des de GitHub
+
+# Evita dues execucions alhora (no processar la mateixa captura dos cops)
+concurrency:
+  group: telegram-bot
+  cancel-in-progress: false
 
 jobs:
   process-screenshots:
