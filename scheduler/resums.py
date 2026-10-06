@@ -194,13 +194,14 @@ def x_len(text):
     return sum(2 if ord(c) > 0x2FFF else 1 for c in text)
 
 
-def fer_fil(intro, blocs):
-    """blocs = [(capçalera, [línies])]. Torna la llista de tuits numerats."""
+def fer_fil(intro, blocs, limit=LIMIT_X, mesura=None):
+    """blocs = [(capçalera, [línies])]. Torna la llista de parts numerades."""
+    mesura = mesura or x_len
     tuits, actual = [], intro
     reserva = 7  # espai per a " (1/3)"
 
     def cap_hi(t):
-        return x_len(t) <= LIMIT_X - reserva
+        return mesura(t) <= limit - reserva
 
     for cap, linies in blocs:
         bloc = cap + "\n" + "\n".join(linies)
@@ -242,11 +243,13 @@ def publicar_fil_x(tuits, imatge):
         print(f"  -> X {i + 1}/{len(tuits)} publicat")
 
 
-def previsualitzar(tuits, fb):
+def previsualitzar(tuits, fb, fil_threads=None):
     """Envia a Telegram el que es publicaria, sense publicar res."""
     tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     text = "🔎 PREVISUALITZACIÓ (no s'ha publicat res)\n\n— X —\n\n" + \
            "\n\n———\n\n".join(tuits) + "\n\n— FACEBOOK —\n\n" + fb
+    if fil_threads:
+        text += "\n\n— THREADS —\n\n" + "\n\n———\n\n".join(fil_threads)
     print(text)
     if tok and chat:
         for i in range(0, len(text), 4000):
@@ -290,25 +293,36 @@ def resum_destacats(ini, fi, tipus, prev, forcar):
                          ["Cap de setmana a Tarragona. El que destaquem:", "Si aquest cap de setmana vols sortir, tens això:",
                           "Destacats del cap de setmana:"])
     cta = veu.triar_cta(recents)
-    tuits = fer_fil(intro, blocs)
-    if cta and x_len(tuits[-1] + "\n\n" + cta) <= LIMIT_X:
-        # la CTA va a l'últim tuit, abans de la numeració
-        m = re.match(r"(.*?)( \(\d+/\d+\))?$", tuits[-1], re.S)
-        tuits[-1] = m.group(1) + "\n\n" + cta + (m.group(2) or "")
+
+    def amb_cta(parts, limit, mesura):
+        if cta and mesura(parts[-1] + "\n\n" + cta) <= limit:
+            # la CTA va a l'última part, abans de la numeració
+            m = re.match(r"(.*?)( \(\d+/\d+\))?$", parts[-1], re.S)
+            parts[-1] = m.group(1) + "\n\n" + cta + (m.group(2) or "")
+        return parts
+
+    tuits = amb_cta(fer_fil(intro, blocs), LIMIT_X, x_len)
+    fil_threads = amb_cta(fer_fil(intro, blocs, limit=490, mesura=len), 490, len)
     fb = intro + "\n\n" + "\n\n".join(c + "\n" + "\n".join(ls) for c, ls in blocs) + \
         (f"\n\n{cta}" if cta else "")
     titol = (f"Destacats · {ini.day}-{fi.day} {MESOS_CA[fi.month - 1]}" if setmana
              else f"Cap de setmana · {ini.day}-{fi.day} {MESOS_CA[fi.month - 1]}")
-    publicar(nom_registre, clau, ini, acts, tuits, fb, titol, "Destacats", prev)
+    publicar(nom_registre, clau, ini, acts, tuits, fb, titol, "Destacats", prev, fil_threads)
 
 
-def publicar(tipus, clau, dia, acts, tuits, fb, titol, etiqueta, prev):
+def publicar(tipus, clau, dia, acts, tuits, fb, titol, etiqueta, prev, fil_threads=None):
     print(f"\n{tipus} · {len(acts)} activitats · {len(tuits)} tuit(s)")
     if prev:
-        previsualitzar(tuits, fb)
+        previsualitzar(tuits, fb, fil_threads)
         return
     imatge = generate_template_image(titol, etiqueta)
     publicar_fil_x(tuits, imatge)
+    try:
+        import threads_pub
+        if fil_threads and threads_pub.configurat():
+            threads_pub.publicar_fil(fil_threads)
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Avís Threads: {e}")
     post_to_facebook(fb, image_bytes=imatge)
     send_to_telegram_for_group(fb, image_bytes=imatge)
     registrar(clau, tipus, dia, len(acts), len(tuits), "\n\n".join(tuits))
