@@ -8,8 +8,9 @@ Cada 2 dies (GitHub Actions):
      (El cercador HTML només en mostra ~20; la resta va darrere "Consulta'n més".)
   2. Recull les URL dels actes (cada acte té un UID únic a la URL).
   3. Descarta els que ja existeixen a Notion (dedup per UID i per títol+data).
-  4. Per cada acte nou, llegeix la fitxa de detall i extreu dades amb Gemini
-     (regla estricta: NO INVENTAR -> "pendent de revisar").
+  4. Per cada acte nou, llegeix la fitxa de detall i n'extreu les dades
+     directament de l'HTML (sense IA): data, hora, lloc, preu, organitzador,
+     imatge, descripció, entrades... Gemini és opcional (IA_AJUNTAMENT=si).
   5. Crea l'entrada a 📥 INBOX AGENDA amb Estat revisió = "Pendent revisar".
   6. Actualitza el log de la font a 🌐 FONTS WEB.
 
@@ -52,6 +53,8 @@ HEADERS = {
 AJAX_ENDPOINT = BASE_URL + "/@@portada-events"
 TIPUS_LLISTES = ["curt", "llarg", "expo", "curs"]   # ordre de prioritat
 B_LIMIT = 2000
+# IA només per reescriure el resum (opcional). La resta de dades surten de la fitxa.
+USA_IA = os.environ.get("IA_AJUNTAMENT", "no").lower() in ("si", "sí", "1", "true", "yes")
 INCLOU_CURSOS = os.environ.get("INCLOU_CURSOS", "si").lower() in ("si", "sí", "1", "true", "yes")
 
 MESOS = {"gen": 1, "febr": 2, "feb": 2, "març": 3, "mar": 3, "abr": 4, "maig": 5,
@@ -224,20 +227,90 @@ def cerca_actes(data_inici, data_fi):
 # ----------------------------------------------------------------------------
 # 2. Fitxa de detall d'un acte
 # ----------------------------------------------------------------------------
-def text_fitxa_acte(url):
-    """Descarrega la fitxa d'un acte i en retorna el text pla del contingut."""
+def _seccions_lateral(article):
+    """{'Preu': (text, [(text_enllac, url)]), ...} a partir dels h3 del lateral."""
+    seccions = {}
+    for h3 in article.select("h3.asideEvent__title"):
+        etiqueta = h3.get_text(" ", strip=True).rstrip(":").strip()
+        textos, enllacos, items = [], [], []
+        for sib in h3.find_next_siblings():
+            if sib.name == "h3":
+                break
+            t = sib.get_text(" ", strip=True)
+            if t:
+                textos.append(t)
+            items += [li.get_text(" ", strip=True) for li in sib.find_all("li")]
+            for a in sib.find_all("a", href=True):
+                enllacos.append((a.get_text(" ", strip=True), urljoin(BASE_URL, a["href"])))
+        seccions[etiqueta] = (" · ".join(textos), enllacos, items)
+    return seccions
+
+
+def _data_hora_fitxa(txt):
+    """'Inici: 07-10-2026, 20:00 Fi: 09-10-2026, 21:00' -> (date_ini, hora, date_fi)."""
+    trobades = re.findall(r"(\d{2})-(\d{2})-(\d{4})(?:,\s*(\d{1,2}:\d{2}))?", txt or "")
+    if not trobades:
+        return None, "", None
+    d, m, a, h = trobades[0]
+    ini = dt.date(int(a), int(m), int(d))
+    fi = None
+    if len(trobades) > 1:
+        d2, m2, a2, _ = trobades[-1]
+        fi = dt.date(int(a2), int(m2), int(d2))
+        if fi <= ini:
+            fi = None
+    return ini, h or "", fi
+
+
+def llegeix_fitxa(url):
+    """Llegeix la fitxa d'un acte i en treu les dades estructurades (sense IA)."""
     r = requests.get(url, headers=HEADERS, timeout=30)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
-    content = soup.find(id="content") or soup.find("main") or soup.body
-    text = content.get_text(separator="\n", strip=True) if content else ""
-    # Imatge principal (si n'hi ha)
-    img = None
-    if content:
-        tag = content.find("img", src=True)
-        if tag:
-            img = urljoin(BASE_URL, tag["src"])
-    return text[:8000], img
+    art = soup.select_one("article.esdeveniment") or soup.find(id="content") or soup.body
+    for tag in art(["script", "style", "iframe"]):
+        tag.decompose()
+
+    sec = _seccions_lateral(art)
+    get = lambda k: sec.get(k, ("", [], []))
+
+    # Descripció (columna principal)
+    cos = art.select_one(".asideEvent .text") or art.select_one(".asideEvent")
+    descripcio = cos.get_text("\n", strip=True) if cos else ""
+    enllacos_desc = []
+    if cos:
+        for a in cos.find_all("a", href=True):
+            enllacos_desc.append((a.get_text(" ", strip=True), urljoin(BASE_URL, a["href"])))
+
+    # Imatge: la gran del cos; si no, og:image
+    imatge = None
+    img = art.select_one("figure img[src]")
+    if img:
+        imatge = urljoin(BASE_URL, img["src"])
+    else:
+        og = soup.find("meta", property="og:image")
+        if og and og.get("content"):
+            imatge = og["content"]
+
+    ini, hora, fi = _data_hora_fitxa(get("Quan")[0])
+    entrades_txt, entrades_links, _ = get("Venda d'entrades / Inscripcions")
+    titol_tag = art.find("h2")
+    return {
+        "titol": titol_tag.get_text(" ", strip=True) if titol_tag else "",
+        "data": ini, "data_fi": fi, "hora": hora,
+        "lloc": get("Localització")[0],
+        "preu": get("Preu")[0],
+        "organitzador": get("Organitzat per")[0],
+        "collabora": get("Hi col·labora")[0],
+        "programacio": get("Programació")[0],
+        "que": get("Què")[2],
+        "entrades_text": entrades_txt,
+        "entrades_links": [u for _, u in entrades_links],
+        "enllacos_desc": enllacos_desc,
+        "descripcio": descripcio,
+        "imatge": imatge,
+        "text_pla": (art.get_text("\n", strip=True) if art else "")[:8000],
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -329,51 +402,85 @@ def processa_ajuntament(mode_test):
         return
 
     # --- Processament ---
-    creats, duplicats_tou, errors, sense_ia = 0, 0, 0, 0
-    gemini_ok = True
+    creats, duplicats_tou, errors, sense_fitxa, amb_ia = 0, 0, 0, 0, 0
+    gemini_ok = USA_IA
     for info in nous[:MAX_ACTES_PER_RUN]:
         url = info["url"]
         time.sleep(PAUSA_ENTRE_PETICIONS)
         try:
-            imatge = None
-            dades = None
-            if gemini_ok:
-                try:
-                    text, imatge = text_fitxa_acte(url)
-                    dades = gemini_extract.extreu(text, url)
-                except Exception as e:
-                    if _es_quota(e):
-                        gemini_ok = False
-                        log("  Quota de Gemini esgotada: la resta d'actes es crearan amb dades del llistat.")
-                    else:
-                        log(f"  Avís Gemini/fitxa amb {url}: {e} -> dades del llistat")
-            if dades is None:
-                dades = dades_del_llistat(info)
-                sense_ia += 1
+            dades = dades_del_llistat(info)
+            dades["model_ia"] = None
+            extres = []
 
-            # Si Gemini no ha trobat alguna dada però el llistat sí, l'aprofitem
-            base = dades_del_llistat(info)
-            for camp in ("titol", "data", "hora", "lloc"):
-                if "pendent" in str(dades.get(camp, "pendent")).lower() and "pendent" not in base[camp]:
-                    dades[camp] = base[camp]
-            if not dades.get("data_fi_iso") and base["data_fi_iso"]:
-                dades["data_fi_iso"] = base["data_fi_iso"]
+            # 1. Fitxa de detall (dades estructurades, sense IA)
+            fitxa = None
+            try:
+                fitxa = llegeix_fitxa(url)
+            except Exception as e:
+                sense_fitxa += 1
+                log(f"  Avís: no s'ha pogut llegir la fitxa {url}: {e} -> dades del llistat")
+
+            if fitxa:
+                if fitxa["titol"]:
+                    dades["titol"] = fitxa["titol"]
+                if fitxa["data"]:
+                    dades["data"] = fitxa["data"].strftime("%d/%m/%Y")
+                if fitxa["data_fi"]:
+                    dades["data_fi_iso"] = fitxa["data_fi"].isoformat()
+                for camp in ("hora", "lloc", "preu", "organitzador"):
+                    if fitxa.get(camp):
+                        dades[camp] = fitxa[camp]
+                for q in fitxa["que"]:
+                    if q in CATEGORIES_WEB:
+                        dades["categoria"] = CATEGORIES_WEB[q]
+                        break
+                dades["resum_agendatgn"] = fitxa["descripcio"]
+                dades["imatge"] = fitxa["imatge"]
+                dades["confianca_ia"] = "Alta"
+                dades["programa"] = fitxa["programacio"] or info.get("cicle") or ""
+                if fitxa["entrades_links"] or fitxa["entrades_text"]:
+                    extres.append("Entrades/Inscripcions: " + " ".join(
+                        [fitxa["entrades_text"]] + fitxa["entrades_links"]).strip())
+                mes_info = [u for t, u in fitxa["enllacos_desc"] if "tarragona.cat" not in u]
+                if mes_info:
+                    extres.append("Enllaços: " + " ".join(mes_info[:3]))
+                if fitxa["collabora"]:
+                    extres.append(f"Hi col·labora: {fitxa['collabora']}")
+                if len(fitxa["que"]) > 1:
+                    extres.append("Categories web: " + ", ".join(fitxa["que"]))
+
+                # 2. (Opcional) resum curt amb IA
+                if gemini_ok:
+                    try:
+                        ia = gemini_extract.extreu(fitxa["text_pla"], url)
+                        if ia.get("resum_agendatgn"):
+                            dades["resum_agendatgn"] = ia["resum_agendatgn"]
+                            dades["model_ia"] = "Gemini"
+                            amb_ia += 1
+                    except Exception as e:
+                        if _es_quota(e):
+                            gemini_ok = False
+                            log("  Quota de Gemini esgotada: continuem sense IA.")
+                        else:
+                            log(f"  Avís Gemini amb {url}: {e}")
+            else:
+                dades["programa"] = info.get("cicle") or ""
 
             data_iso = parse_data_iso(dades.get("data"))
             clau = (normalitza_titol(dades.get("titol")), data_iso or "")
             notes = f"Nova (run automàtic {avui.isoformat()})."
-            if info.get("cicle"):
-                notes += f" Cicle: {info['cicle']}."
-            if dades.get("confianca_ia") == "Baixa" and not dades.get("resum_agendatgn"):
-                notes += " Creada amb dades del llistat (sense IA): revisar fitxa."
+            if not fitxa:
+                notes += " Creada només amb dades del llistat: revisar fitxa."
             if clau in claus_existents:
                 notes = ("Possible duplicat — pendent de revisar "
                          f"(coincideix títol+data amb una entrada existent). Run {avui.isoformat()}.")
                 duplicats_tou += 1
+            if extres:
+                notes += "\n" + "\n".join(extres)
 
             notion_io.crea_entrada_inbox(
                 dades=dades, url=url, data_iso=data_iso,
-                imatge_url=imatge, font=FONT_NOM, notes=notes,
+                imatge_url=dades.get("imatge"), font=FONT_NOM, notes=notes,
             )
             claus_existents.add(clau)
             creats += 1
@@ -385,7 +492,7 @@ def processa_ajuntament(mode_test):
     # --- Log de la font ---
     pendents = max(0, len(nous) - MAX_ACTES_PER_RUN)
     resum = (f"Run {avui.isoformat()}: {len(actes)} actes al cercador, "
-             f"{len(nous)} nous, {creats} entrades creades ({sense_ia} sense IA), "
+             f"{len(nous)} nous, {creats} entrades creades ({sense_fitxa} sense fitxa, {amb_ia} amb resum IA), "
              f"{duplicats_tou} possibles duplicats, {errors} errors, "
              f"{pendents} pendents pel proper run. Mètode: {metode}.")
     estat = "OK" if errors == 0 and "fallback" not in metode else "Revisar estructura"
