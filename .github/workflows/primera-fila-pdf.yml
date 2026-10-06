@@ -1,0 +1,77 @@
+name: Primera Fila · generar PDF
+
+on:
+  schedule:
+    # Cada 15 minuts mira si hi ha alguna edició en "Maquetant". Si no n'hi ha, acaba en segons.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      edicio:
+        description: "URL de l'edició (buit = la que estigui en Maquetant)"
+        required: false
+        default: ""
+
+concurrency:
+  group: primera-fila-pdf
+  cancel-in-progress: false
+
+jobs:
+  pdf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: primera-fila
+    env:
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Hi ha feina?
+        id: check
+        run: |
+          pip install -q requests
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "feina=true" >> "$GITHUB_OUTPUT"
+          else
+            python hi_ha_feina.py
+          fi
+
+      - uses: actions/cache@v4
+        if: steps.check.outputs.feina == 'true'
+        with:
+          path: |
+            primera-fila/cache
+            ~/.cache/ms-playwright
+          key: primera-fila-v1
+
+      - name: Instal·lar
+        if: steps.check.outputs.feina == 'true'
+        run: |
+          pip install -q -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Generar el PDF
+        if: steps.check.outputs.feina == 'true'
+        env:
+          EDICIO: ${{ inputs.edicio }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          DRIVE_PDF_FOLDER_ID: ${{ secrets.DRIVE_PDF_FOLDER_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -n "$EDICIO" ]; then python generar_pdf.py --edicio "$EDICIO"; else python generar_pdf.py; fi
+
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.feina == 'true'
+        with:
+          name: primera-fila
+          path: |
+            primera-fila/sortida/*.pdf
+            primera-fila/sortida/*/informe.txt
