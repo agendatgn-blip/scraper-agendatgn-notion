@@ -446,6 +446,12 @@ def publish_everywhere(text, cta, image_bytes, activity, vol_facebook, clau):
     import veu_agendatgn as veu
     text_x = f"{text}\n\n{cta}" if cta and len(text) + len(cta) + 2 <= 280 else text
     post_to_twitter(text_x, image_bytes=image_bytes)
+    try:
+        import threads_pub
+        if threads_pub.configurat():
+            threads_pub.publicar_post(facebook_text(text, activity, cta)[:threads_pub.LIMIT])
+    except Exception as e:  # noqa: BLE001  (Threads mai ha de trencar X/Facebook)
+        print(f"  -> Avís Threads: {e}")
     if vol_facebook:
         fb = facebook_text(text, activity, cta)
         post_to_facebook(fb, image_bytes=image_bytes)
