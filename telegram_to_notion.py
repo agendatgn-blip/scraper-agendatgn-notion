@@ -76,6 +76,7 @@ Retorna NOMÉS un JSON vàlid (sense text addicional, sense ```), amb aquests ca
   "resum_web": "resum més ampli (2-3 frases) per a una fitxa web",
   "preu": "text tal qual apareix (p.ex. 'Gratuït', '8€') o null",
   "organitzador": "entitat organitzadora si es veu, si no null",
+  "programa": "nom del festival, cicle, festa major o festa de barri del qual forma part l'activitat (p.ex. 'Tarragona Sona Flamenc', 'Festa Major del Serrallo'), només si es veu clarament; si no, null",
   "requadre_cartell": {{
     "x_min": 0, "y_min": 0, "x_max": 1000, "y_max": 1000
   }}
@@ -354,6 +355,9 @@ def notion_create_page(data, image_url, filename=None):
 
     if data.get("organitzador"):
         properties["Organitzador detectat"] = {"rich_text": [{"text": {"content": data["organitzador"]}}]}
+
+    if data.get("programa"):
+        properties["Programa detectat"] = {"rich_text": [{"text": {"content": data["programa"][:200]}}]}
 
     if data.get("resum_web"):
         properties["Resum web"] = {"rich_text": [{"text": {"content": data["resum_web"]}}]}
