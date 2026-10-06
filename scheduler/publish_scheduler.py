@@ -47,6 +47,8 @@ import json
 from datetime import datetime, date, timedelta
 from io import BytesIO
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
@@ -302,62 +304,46 @@ def get_activity_image_bytes(props, nom, categoria):
 # Generació de text amb Groq
 # ---------------------------------------------------------------------------
 
-def generate_text(activity, mode):
-    """mode = 'avancament' | 'dia'"""
-    from groq import Groq
+def _lloc_complet(activity):
+    lloc = activity.get("lloc") or ""
+    mun = (activity.get("municipi") or "").strip()
+    if mun and "tarragona" not in mun.lower() and mun.lower() not in lloc.lower():
+        lloc = f"{lloc} ({mun})" if lloc else mun
+    return lloc
 
-    client = Groq(api_key=GROQ_API_KEY)
 
-    nom = activity["nom"]
-    lloc = activity["lloc"]
-    hora = activity["hora"]
-    descripcio = activity["descripcio"]
-    preu = activity["preu"]
-    data_text = activity.get("data_text", "")
+def generate_text(activity, mode, recents=None):
+    """mode = 'avancament' | 'dia'. El to surt de veu_agendatgn.py i guia_to.md.
+    Torna (text_x, cta) — la CTA s'afegeix a part perquè no es repeteixi."""
+    import veu_agendatgn as veu
 
+    recents = recents or []
+    cta = veu.triar_cta(recents)
+    nom, hora, data_text = activity["nom"], activity["hora"], activity.get("data_text", "")
+    lloc = _lloc_complet(activity)
+    dades = (
+        "Dades de l'activitat (fes servir NOMÉS aquestes):\n"
+        f"- Nom: {nom}\n- Data: {data_text}\n- Hora: {hora}\n- Lloc: {lloc}\n"
+        f"- Preu: {activity.get('preu_text') or ''}\n- Descripció: {activity['descripcio']}\n\n"
+    )
     if mode == "avancament":
-        instruccio = (
-            f"Escriu un tuit curt (màxim 260 caràcters) en català anunciant "
-            f"que el proper {data_text} tindrà lloc l'activitat cultural "
-            f"'{nom}' a Tarragona. Fes servir aquesta data tal qual (dia de la "
-            f"setmana + número), NO diguis 'd'aquí a X dies' ni facis cap "
-            f"compte enrere. To genuí, atractiu, sense hashtags excessius "
-            f"(màxim 2)."
+        instruccio = dades + (
+            f"Escriu un post per a X que avanci aquesta activitat. Digues la data tal qual («el {data_text}»), "
+            "sense comptes enrere. Inclou hora i lloc si hi són. No hi posis cap crida a l'acció ni enllaç."
         )
     else:
-        instruccio = (
-            f"Escriu un tuit curt (màxim 260 caràcters) en català anunciant "
-            f"que AVUI és el dia de l'activitat cultural '{nom}' a Tarragona. "
-            f"Crea sensació d'urgència/oportunitat. Màxim 2 hashtags."
+        instruccio = dades + (
+            "Escriu un post per a X per dir que és AVUI. Inclou hora i lloc si hi són. "
+            "No hi posis cap crida a l'acció ni enllaç."
         )
-
-    context = (
-        f"Dades de l'activitat:\n"
-        f"- Nom: {nom}\n"
-        f"- Lloc: {lloc}\n"
-        f"- Hora: {hora}\n"
-        f"- Preu: {preu}\n"
-        f"- Descripció: {descripcio}\n\n{instruccio}\n\n"
-        f"Respon NOMÉS amb el text del tuit, sense cometes ni explicacions."
-    )
-
-    response = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
-        messages=[{"role": "user", "content": context}],
-        max_tokens=200,
-        reasoning_effort="low",
-    )
-    resultat = (response.choices[0].message.content or "").strip()
+    marge = 270 - (len(cta) + 2 if cta else 0)
+    resultat = veu.escriure(instruccio, marge, GROQ_API_KEY, textos_recents=recents)
     if not resultat:
-        # Xarxa de seguretat: si el model no retorna text (per exemple,
-        # tot el contingut ha anat al "raonament"), fem servir un text
-        # simple generat directament a partir de les dades, per no perdre
-        # la publicació.
-        if mode == "avancament":
-            resultat = f"📅 El proper {data_text}: {nom}, a {lloc}. No t'ho perdis!"
-        else:
-            resultat = f"📅 AVUI: {nom}, a {lloc} ({hora}). T'hi esperem!"
-    return resultat
+        # Xarxa de seguretat: text simple a partir de les dades
+        detall = " · ".join(x for x in [hora, lloc] if x)
+        resultat = (f"El {data_text}: {nom}." if mode == "avancament" else f"Avui: {nom}.") + \
+            (f"\n{detall}" if detall else "")
+    return resultat, cta
 
 
 # ---------------------------------------------------------------------------
@@ -391,20 +377,18 @@ def post_to_twitter(text, image_bytes=None):
         raise
 
 
-def facebook_text(text, activity):
-    """El text del tuit + una línia de dades pràctiques (a Facebook hi cap més)."""
-    parts = []
-    if activity.get("data_text"):
-        parts.append(f"📅 {activity['data_text'].capitalize()}")
-    if activity.get("hora"):
-        parts.append(f"🕒 {activity['hora']}")
-    if activity.get("lloc"):
-        parts.append(f"📍 {activity['lloc']}")
-    preu = activity.get("preu_text")
-    if preu:
-        parts.append(f"💶 {preu}")
-    detall = " · ".join(parts)
-    return f"{text}\n\n{detall}" if detall else text
+def facebook_text(text, activity, cta=None):
+    """Text de X + una línia pràctica (sense emojis) + CTA opcional. Sense URLs."""
+    parts = [activity.get("data_text", "").capitalize(), activity.get("hora", ""),
+             _lloc_complet(activity), activity.get("preu_text", "")]
+    detall = " · ".join(p for p in parts if p)
+    out = text
+    ja_hi_es = all((x or "").lower() in text.lower() for x in [activity.get("hora"), _lloc_complet(activity)])
+    if detall and not ja_hi_es:
+        out += f"\n\n{detall}"
+    if cta:
+        out += f"\n\n{cta}"
+    return out
 
 
 def post_to_facebook(text, image_bytes=None):
@@ -458,12 +442,15 @@ def send_to_telegram_for_group(text, image_bytes=None):
         print(f"  -> Avís: no s'ha pogut enviar a Telegram ({e}).")
 
 
-def publish_everywhere(text, image_bytes, activity, vol_facebook):
-    post_to_twitter(text, image_bytes=image_bytes)
+def publish_everywhere(text, cta, image_bytes, activity, vol_facebook, clau):
+    import veu_agendatgn as veu
+    text_x = f"{text}\n\n{cta}" if cta and len(text) + len(cta) + 2 <= 280 else text
+    post_to_twitter(text_x, image_bytes=image_bytes)
     if vol_facebook:
-        fb = facebook_text(text, activity)
+        fb = facebook_text(text, activity, cta)
         post_to_facebook(fb, image_bytes=image_bytes)
         send_to_telegram_for_group(fb, image_bytes=image_bytes)
+    veu.registrar_post(text_x, "Post individual", date.today().isoformat(), clau)
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +483,7 @@ def process_activity(page):
     activity = {
         "nom": nom,
         "lloc": get_prop_text(props, "Lloc") or "",
+        "municipi": get_prop_text(props, "Municipi") or "",
         "hora": get_prop_text(props, "Hora") or "",
         "descripcio": get_prop_text(props, "Descripció") or "",
         "preu": get_prop_text(props, "Preu"),
@@ -521,20 +509,27 @@ def process_activity(page):
     # sempre que encara no sigui el mateix dia de l'esdeveniment.
     if cal_avancament:
         print(f"[{nom}] Generant publicació d'avançament...")
-        text = generate_text(activity, "avancament")
-        publish_everywhere(text, image_bytes, activity, vol_facebook)
+        text, cta = generate_text(activity, "avancament", RECENTS)
+        publish_everywhere(text, cta, image_bytes, activity, vol_facebook, f"post-{page_id}-avancament")
+        RECENTS.insert(0, text)
         mark_published(page_id, "Publicat Avançament")
 
     # --- Publicació "Dia" ---
     if cal_dia:
         print(f"[{nom}] Generant publicació del dia...")
-        text = generate_text(activity, "dia")
-        publish_everywhere(text, image_bytes, activity, vol_facebook)
+        text, cta = generate_text(activity, "dia", RECENTS)
+        publish_everywhere(text, cta, image_bytes, activity, vol_facebook, f"post-{page_id}-dia")
+        RECENTS.insert(0, text)
         mark_published(page_id, "Publicat Dia")
+
+
+RECENTS = []
 
 
 def main():
     check_env()
+    import veu_agendatgn as veu
+    RECENTS.extend(veu.recents(10))
     print(f"Executant scheduler — {date.today().isoformat()}")
     activities = query_approved_activities()
     print(f"Activitats aprovades trobades: {len(activities)}")
