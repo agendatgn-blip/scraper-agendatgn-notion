@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -46,6 +47,14 @@ TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
 GEMINI_MODEL = "gemini-3.6-flash"
+# Model alternatiu opcional si el principal està saturat (secret/env GEMINI_FALLBACK_MODEL)
+GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "").strip()
+GEMINI_RETRY_STATUS = {429, 500, 502, 503, 504}
+GEMINI_RETRY_WAITS = [5, 15, 30]  # segons d'espera entre reintents
+
+
+class GeminiBusyError(Exception):
+    """Gemini no respon (saturat). El missatge es tornarà a provar al següent run."""
 
 CATEGORIES = [
     "Música", "Teatre", "Exposició", "Cinema", "Patrimoni", "Literatura",
@@ -140,10 +149,26 @@ def gemini_extract(image_bytes, mime_type="image/jpeg"):
         ],
         "generationConfig": {"temperature": 0.1, "response_mime_type": "application/json"},
     }
-    r = requests.post(url, headers=headers, json=payload, timeout=120)
-    r.raise_for_status()
-    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    return _parse_json_response(text)
+    models = [GEMINI_MODEL] + ([GEMINI_FALLBACK_MODEL] if GEMINI_FALLBACK_MODEL else [])
+    last_error = None
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        for attempt in range(len(GEMINI_RETRY_WAITS) + 1):
+            try:
+                r = requests.post(url, headers=headers, json=payload, timeout=120)
+            except (requests.ConnectionError, requests.Timeout) as e:
+                last_error = repr(e)
+            else:
+                if r.status_code not in GEMINI_RETRY_STATUS:
+                    r.raise_for_status()
+                    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    return _parse_json_response(text)
+                last_error = f"{r.status_code} {r.reason}"
+            if attempt < len(GEMINI_RETRY_WAITS):
+                wait = GEMINI_RETRY_WAITS[attempt]
+                print(f"Gemini ({model}) no respon ({last_error}); reintent en {wait}s...", file=sys.stderr)
+                time.sleep(wait)
+    raise GeminiBusyError(f"Gemini saturat després de diversos intents: {last_error}")
 
 
 def _parse_json_response(text):
@@ -350,13 +375,16 @@ def notion_create_page(data, image_url, filename=None):
 
 def process_photo_message(message):
     chat_id = message["chat"]["id"]
-    photo = message["photo"][-1]  # la resolució més alta
+    if "photo" in message:
+        file_id = message["photo"][-1]["file_id"]  # la resolució més alta
+    else:
+        file_id = message["document"]["file_id"]  # imatge enviada com a fitxer
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     try:
         telegram_send_message(chat_id, "📥 Rebut, processant la imatge...")
 
-        img_bytes, ext = telegram_download_photo(photo["file_id"])
+        img_bytes, ext = telegram_download_photo(file_id)
         mime = "image/png" if ext.lower() == "png" else "image/jpeg"
 
         image_hash = hashlib.sha256(img_bytes).hexdigest()[:16]
@@ -388,6 +416,14 @@ def process_photo_message(message):
             f"🏷️ {data.get('categoria') or '(sense categoria)'}\n\n"
             f"Revisa-ho i completa el que falti a Notion.",
         )
+    except GeminiBusyError as e:
+        print("Gemini saturat, es reintentarà:", repr(e), file=sys.stderr)
+        telegram_send_message(
+            chat_id,
+            "⏳ El servei d'IA (Gemini) està saturat ara mateix. "
+            "No cal que facis res: ho tornaré a provar automàticament al proper cicle.",
+        )
+        return False
     except Exception as e:  # noqa: BLE001
         print("Error processant missatge:", repr(e), file=sys.stderr)
         telegram_send_message(
@@ -398,22 +434,32 @@ def process_photo_message(message):
         )
 
 
+def is_image_message(message):
+    """Accepta fotos normals i també imatges enviades com a fitxer."""
+    if "photo" in message:
+        return True
+    doc = message.get("document") or {}
+    return str(doc.get("mime_type", "")).startswith("image/")
+
+
 def main():
     updates = telegram_get_updates()
     if not updates:
         print("Sense missatges nous.")
         return
 
-    last_update_id = updates[-1]["update_id"]
-
+    confirm_offset = None
     for update in updates:
         message = update.get("message")
-        if not message or "photo" not in message:
-            continue
-        process_photo_message(message)
+        if message and is_image_message(message):
+            if process_photo_message(message) is False:
+                # Gemini saturat: no confirmem aquest missatge ni els següents,
+                # així es tornaran a processar al proper run.
+                break
+        confirm_offset = update["update_id"] + 1
 
-    # Confirma tots els missatges processats perquè no es tornin a llegir
-    telegram_confirm(last_update_id + 1)
+    if confirm_offset is not None:
+        telegram_confirm(confirm_offset)
 
 
 if __name__ == "__main__":
