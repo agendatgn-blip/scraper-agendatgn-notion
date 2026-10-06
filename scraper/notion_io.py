@@ -121,10 +121,16 @@ def crea_entrada_inbox(dades, url, data_iso, imatge_url, font, notes):
         "Notes revisió": {"rich_text": _rt(notes)},
         "Font": {"select": {"name": font}},
         "Tipus entrada": {"select": {"name": "Web scraper"}},
-        "Model IA": {"select": {"name": "Gemini 2.5 Flash"}},
         "Estat revisió": {"select": {"name": "Pendent revisar"}},
         "URL font": {"url": url},
     }
+
+    if dades.get("programa"):
+        props["Programa detectat"] = {"rich_text": _rt(dades["programa"])}
+
+    model_ia = dades.get("model_ia", "Gemini 2.5 Flash")
+    if model_ia:
+        props["Model IA"] = {"select": {"name": model_ia}}
 
     # Data amb rang si hi ha data_fi
     if data_iso:
