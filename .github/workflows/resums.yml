@@ -1,0 +1,58 @@
+name: Resums AgendaTGN (destacats)
+
+on:
+  schedule:
+    # GitHub va en hora UTC. Posem les dues hores (estiu i hivern) i l'script
+    # només publica a l'hora bona de Tarragona:
+    # dimecres 20:00 (destacats de la setmana) i divendres 8:00 (cap de setmana).
+    - cron: "0 18,19 * * 3"
+    - cron: "0 6,7 * * 5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Quin resum"
+        type: choice
+        options: [setmana, cap_de_setmana]
+        default: setmana
+      data:
+        description: "Un dia d'aquella setmana, AAAA-MM-DD (buit = aquesta setmana)"
+        required: false
+        default: ""
+      previsualitzar:
+        description: "Només previsualitzar per Telegram (no publica res)"
+        type: boolean
+        default: true
+
+jobs:
+  resums:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Resum
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: ${{ inputs.mode }}
+          DATA: ${{ inputs.data }}
+          PREVIS: ${{ inputs.previsualitzar }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ARGS="--mode $MODE --forcar"
+            if [ -n "$DATA" ]; then ARGS="$ARGS --data $DATA"; fi
+            if [ "$PREVIS" = "true" ]; then ARGS="$ARGS --previsualitzar"; fi
+          fi
+          python scheduler/resums.py $ARGS
