@@ -16,7 +16,7 @@ on:
 jobs:
   scraper:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Descarregar el codi
         uses: actions/checkout@v4
