@@ -156,6 +156,8 @@ def crea_entrada_inbox(dades, url, data_iso, imatge_url, font, notes):
 
     if imatge_url:
         props["URL Drive imatge"] = {"url": imatge_url}
+    # Casella per veure d'un cop d'ull (i al dashboard) què falta per tenir imatge
+    props["Imatge pendent"] = {"checkbox": not imatge_url}
 
     _post("/pages", {"parent": {"database_id": DB_INBOX}, "properties": props})
 

@@ -24,6 +24,7 @@ from urllib.parse import urljoin
 
 import notion_io
 import gemini_extract
+import imatges
 
 HEADERS = {
     "User-Agent": "AgendaTGN-bot/1.0 (+https://instagram.com/agendatgn; seguiment editorial responsable)",
@@ -100,7 +101,11 @@ def processa_font(font, mode_test=False):
 
     # 3. Dedup
     existents = notion_io.entrades_existents(nom, tambe_urls=True)
-    creats, duplicats_tou, saltats = 0, 0, 0
+    creats, duplicats_tou, saltats, amb_imatge = 0, 0, 0, 0
+
+    # Imatge "per defecte" de la web (la de la pàgina d'agenda): si una
+    # activitat torna aquesta mateixa, és el logo/genèrica del lloc, no el cartell.
+    imatge_web = imatges.imatge_de_pagina(url)
 
     for act in activitats[:MAX_ACTIVITATS_PER_FONT]:
         import main as m  # reutilitzem parse_data_iso / normalitza_titol
@@ -119,14 +124,26 @@ def processa_font(font, mode_test=False):
                      f"amb una entrada existent). Run {avui.isoformat()}.")
             duplicats_tou += 1
 
+        # Imatge: només si l'activitat té pàgina pròpia (si no, seria la de l'agenda)
+        imatge_url = None
+        if url_act != url:
+            imatge_url = imatges.imatge_de_pagina(url_act)
+            if imatge_url and imatge_url == imatge_web:
+                imatge_url = None
+            time.sleep(PAUSA)
+        if imatge_url:
+            amb_imatge += 1
+        else:
+            notes += " Sense imatge pròpia: cal buscar-la o es farà servir la imatge tipus."
+
         if mode_test:
-            log(f"  [TEST] {act.get('titol')} | {act.get('data')} | {url_act}")
+            log(f"  [TEST] {act.get('titol')} | {act.get('data')} | {url_act} | imatge: {imatge_url or '—'}")
             continue
 
         try:
             notion_io.crea_entrada_inbox(
                 dades=act, url=url_act, data_iso=data_iso,
-                imatge_url=None, font=nom, notes=notes,
+                imatge_url=imatge_url, font=nom, notes=notes,
             )
             existents["titol_data"].add(clau)
             existents["urls"].add(url_act)
@@ -139,7 +156,7 @@ def processa_font(font, mode_test=False):
     # 4. Log de la font
     if not mode_test:
         resum = (f"Run {avui.isoformat()}: {len(activitats)} activitats detectades, "
-                 f"{creats} entrades noves, {duplicats_tou} possibles duplicats marcats, "
+                 f"{creats} entrades noves ({amb_imatge} amb imatge), {duplicats_tou} possibles duplicats marcats, "
                  f"{saltats} ja existents (saltades).")
         notion_io.actualitza_font(nom, estat="OK", resultat=resum)
         log("  " + resum)
