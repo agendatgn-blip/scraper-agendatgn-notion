@@ -1,0 +1,35 @@
+name: Re-omplir imatges (scraper)
+
+# Busca la imatge de les entrades del scraper que no en tenen.
+# Manual: Actions → "Re-omplir imatges (scraper)" → Run workflow.
+# També s'executa sol cada dilluns, per si alguna web ha penjat el cartell més tard.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode_test:
+        description: "Mode test (no escriu res a Notion): si / no"
+        required: false
+        default: "no"
+      max:
+        description: "Màxim d'entrades a revisar"
+        required: false
+        default: "400"
+
+jobs:
+  omple:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Re-omplir imatges
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          OMPLE_TEST: ${{ inputs.mode_test || 'no' }}
+          OMPLE_MAX: ${{ inputs.max || '400' }}
+        run: python eines/omple_imatges.py
