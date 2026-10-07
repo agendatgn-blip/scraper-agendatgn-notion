@@ -1,0 +1,44 @@
+name: Prova de models IA (cartells validats)
+
+# Només manual: Actions → "Prova de models IA" → Run workflow.
+# No escriu res a Notion; només llegeix i compara.
+on:
+  workflow_dispatch:
+    inputs:
+      n:
+        description: "Quants cartells validats provar"
+        required: false
+        default: "30"
+      proveidors:
+        description: "Proveïdors a comparar (separats per comes)"
+        required: false
+        default: "mistral,gemini,groq"
+
+jobs:
+  prova:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Comparar models
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PROVA_N: ${{ inputs.n }}
+          PROVA_PROVEIDORS: ${{ inputs.proveidors }}
+        run: python eines/prova_models.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prova-models
+          path: prova_models.csv
