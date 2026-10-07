@@ -2,13 +2,14 @@
 """
 AgendaTGN — Bot de pantallazos
 --------------------------------
-Flux: Telegram (foto) -> Gemini (extreu dades) -> Google Drive (guarda imatge)
+Flux: Telegram (foto) -> IA (Mistral → Gemini → Groq, mòdul ia/) -> Google Drive (guarda imatge)
       -> Notion (crea entrada a INBOX AGENDA)
 
 Dissenyat per executar-se periòdicament (p. ex. cada 5 minuts via GitHub Actions
 cron). Cada execució:
   1. Demana a Telegram els missatges nous (getUpdates)
-  2. Per cada foto rebuda: la baixa, l'envia a Gemini per extreure les dades
+  2. Per cada foto rebuda: la baixa i l'envia a la cadena d'IA (ia/) per extreure
+     i validar les dades
   3. Puja la imatge original a una carpeta de Google Drive
   4. Crea una pàgina nova a la base de dades INBOX AGENDA de Notion amb les
      dades extretes + l'enllaç de la imatge
@@ -19,9 +20,7 @@ Totes les claus es llegeixen de variables d'entorn — no hi ha res sensible
 escrit en aquest fitxer.
 """
 
-import base64
 import hashlib
-import json
 import os
 import sys
 import time
@@ -31,13 +30,15 @@ from io import BytesIO
 import requests
 from PIL import Image
 
+from ia import TotsElsProveidorsHanFallat, extreu_cartell
+from ia.validador import notes_revisio
+
 # ---------------------------------------------------------------------------
 # Configuració — es llegeix de variables d'entorn (mai escrita aquí)
 # ---------------------------------------------------------------------------
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 NOTION_DB_ID = os.environ["NOTION_DB_ID"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 GOOGLE_OAUTH_CLIENT_ID = os.environ["GOOGLE_OAUTH_CLIENT_ID"]
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ["GOOGLE_OAUTH_CLIENT_SECRET"]
 GOOGLE_OAUTH_REFRESH_TOKEN = os.environ["GOOGLE_OAUTH_REFRESH_TOKEN"]
@@ -46,54 +47,10 @@ DRIVE_FOLDER_ID = os.environ["DRIVE_FOLDER_ID"]  # ID de la carpeta "AgendaTGN -
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
-GEMINI_MODEL = "gemini-3.6-flash"
-# Model alternatiu opcional si el principal està saturat (secret/env GEMINI_FALLBACK_MODEL)
-GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "").strip()
-GEMINI_RETRY_STATUS = {429, 500, 502, 503, 504}
-GEMINI_RETRY_WAITS = [5, 15, 30]  # segons d'espera entre reintents
 
-
-class GeminiBusyError(Exception):
-    """Gemini no respon (saturat). El missatge es tornarà a provar al següent run."""
-
-CATEGORIES = [
-    "Música", "Teatre", "Exposició", "Cinema", "Patrimoni", "Literatura",
-    "Familiar", "Taller", "Gastronomia", "Mercat", "Conferència", "Altres",
-    "Dansa", "Art", "Festa popular",
-]
-
-EXTRACTION_PROMPT = f"""Ets un assistent que llegeix captures de pantalla d'esdeveniments
-culturals (xarxes socials, cartells, webs d'agenda) i n'extreu les dades estructurades.
-
-Retorna NOMÉS un JSON vàlid (sense text addicional, sense ```), amb aquests camps:
-{{
-  "titol": "nom de l'activitat",
-  "data_inici": "YYYY-MM-DD o null si no es veu",
-  "data_fi": "YYYY-MM-DD o null si és un sol dia",
-  "hora": "HH:MM o null si no es veu",
-  "lloc": "nom del lloc/espai",
-  "categoria": "una EXACTAMENT d'aquesta llista: {", ".join(CATEGORIES)}",
-  "resum_web": "resum més ampli (2-3 frases) per a una fitxa web",
-  "preu": "text tal qual apareix (p.ex. 'Gratuït', '8€') o null",
-  "organitzador": "entitat organitzadora si es veu, si no null",
-  "programa": "nom del festival, cicle, festa major o festa de barri del qual forma part l'activitat (p.ex. 'Tarragona Sona Flamenc', 'Festa Major del Serrallo'), només si es veu clarament; si no, null",
-  "requadre_cartell": {{
-    "x_min": 0, "y_min": 0, "x_max": 1000, "y_max": 1000
-  }}
-}}
-
-Pel camp "requadre_cartell": la captura de pantalla pot incloure, a més del cartell/publicació
-en si, elements d'interfície al voltant (barra d'estat del mòbil, interfície d'Instagram/
-WhatsApp, altres publicacions parcials per dalt o per baix, etc.). Aquest camp ha de marcar
-NOMÉS el requadre que conté el cartell/imatge de l'activitat en si, EXCLOENT qualsevol
-interfície o contingut aliè.
-Fes servir coordenades normalitzades de 0 a 1000 (0 = vora superior/esquerra de la imatge
-sencera, 1000 = vora inferior/dreta), on x_min < x_max i y_min < y_max.
-Si la imatge ja és nomès el cartell net (sense res més al voltant), retorna
-{{"x_min": 0, "y_min": 0, "x_max": 1000, "y_max": 1000}}.
-
-Si algun altre camp no es pot determinar amb la imatge, posa null. No inventis dades.
-La categoria HA de ser exactament una de la llista, sense variacions ni accents diferents."""
+# Si cap proveïdor d'IA respon durant aquestes hores, es crea igualment la fila
+# a INBOX (amb la imatge i sense dades) perquè el cartell no es perdi.
+HORES_MAX_REINTENT = int(os.environ.get("HORES_MAX_REINTENT", "3"))
 
 
 def telegram_get_updates(offset=None):
@@ -128,91 +85,8 @@ def telegram_download_photo(file_id):
     return img.content, file_path.split(".")[-1]
 
 
-def gemini_extract(image_bytes, mime_type="image/jpeg"):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
-    }
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": EXTRACTION_PROMPT},
-                    {
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": base64.b64encode(image_bytes).decode("utf-8"),
-                        }
-                    },
-                ]
-            }
-        ],
-        "generationConfig": {"temperature": 0.1, "response_mime_type": "application/json"},
-    }
-    models = [GEMINI_MODEL] + ([GEMINI_FALLBACK_MODEL] if GEMINI_FALLBACK_MODEL else [])
-    last_error = None
-    for model in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        for attempt in range(len(GEMINI_RETRY_WAITS) + 1):
-            try:
-                r = requests.post(url, headers=headers, json=payload, timeout=120)
-            except (requests.ConnectionError, requests.Timeout) as e:
-                last_error = repr(e)
-            else:
-                if r.status_code not in GEMINI_RETRY_STATUS:
-                    r.raise_for_status()
-                    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    return _parse_json_response(text)
-                last_error = f"{r.status_code} {r.reason}"
-            if attempt < len(GEMINI_RETRY_WAITS):
-                wait = GEMINI_RETRY_WAITS[attempt]
-                print(f"Gemini ({model}) no respon ({last_error}); reintent en {wait}s...", file=sys.stderr)
-                time.sleep(wait)
-    raise GeminiBusyError(f"Gemini saturat després de diversos intents: {last_error}")
-
-
-def _parse_json_response(text):
-    """Neteja i interpreta la resposta de Gemini encara que vingui embolicada
-    amb ```json ... ```, amb text addicional al voltant, o amb contingut extra
-    després del primer objecte JSON vàlid."""
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        cleaned = "\n".join(lines).strip()
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-
-    # Busca el primer objecte JSON complet comptant claus obertes/tancades,
-    # ignorant qualsevol text (o segon objecte) que vingui després.
-    start = cleaned.find("{")
-    if start != -1:
-        depth = 0
-        for i in range(start, len(cleaned)):
-            if cleaned[i] == "{":
-                depth += 1
-            elif cleaned[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = cleaned[start : i + 1]
-                    try:
-                        return json.loads(candidate)
-                    except json.JSONDecodeError:
-                        break
-
-    print("Resposta de Gemini no vàlida com a JSON:", repr(text), file=sys.stderr)
-    raise json.JSONDecodeError("No s'ha pogut interpretar la resposta de Gemini", cleaned, 0)
-
-
 def crop_to_poster(image_bytes, bbox, mime_type="image/jpeg"):
-    """Retalla la imatge al requadre del cartell indicat per Gemini.
+    """Retalla la imatge al requadre del cartell indicat per la IA.
 
     bbox ve amb coordenades normalitzades 0-1000. Si el requadre no és vàlid
     (falta, és massa petit, o cobreix pràcticament tota la imatge), es
@@ -314,79 +188,158 @@ def notion_find_by_hash(image_hash):
     return results[0] if results else None
 
 
-def notion_create_page(data, image_url, filename=None):
-    headers = {
+def _notion_headers():
+    return {
         "Authorization": f"Bearer {NOTION_TOKEN}",
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
 
+
+def _rt(text, max_total=2000):
+    """rich_text de Notion: trossos de 2.000 caràcters (límit per tros)."""
+    text = (text or "")[:max_total]
+    return [{"text": {"content": text[i:i + 2000]}} for i in range(0, len(text), 2000)]
+
+
+def notion_find_duplicate(dades):
+    """True si ja hi ha una entrada amb el mateix títol i la mateixa data."""
+    titol, data = dades.get("titol"), dades.get("data_inici")
+    if not titol or not data:
+        return False
+    payload = {
+        "filter": {"and": [
+            {"property": "Data detectada", "date": {"equals": data}},
+            {"or": [
+                {"property": "Títol detectat", "rich_text": {"equals": titol}},
+                {"property": "Nom provisional", "title": {"equals": titol}},
+            ]},
+        ]},
+        "page_size": 1,
+    }
+    r = requests.post(
+        f"{NOTION_API}/databases/{NOTION_DB_ID}/query",
+        headers=_notion_headers(), json=payload, timeout=30,
+    )
+    r.raise_for_status()
+    return bool(r.json().get("results"))
+
+
+def notion_create_page(resultat, image_url, filename=None):
+    """Crea la fila a INBOX AGENDA a partir d'un ia.ResultatCartell.
+    Els camps sense dada es deixen buits (mai "pendent de revisar")."""
+    data = resultat.dades
     titol = data.get("titol") or "Sense títol"
 
     properties = {
-        "Nom provisional": {"title": [{"text": {"content": titol}}]},
+        "Nom provisional": {"title": _rt(titol, 200)},
+        "Títol detectat": {"rich_text": _rt(titol, 200)},
         "Font": {"select": {"name": "Instagram"}},
-        "Model IA": {"select": {"name": "Gemini"}},
+        "Model IA": {"select": {"name": resultat.model_etiqueta}},
         "Tipus entrada": {"select": {"name": "Captura Instagram"}},
-        "Estat revisió": {"select": {"name": "Pendent revisar"}},
+        "Estat revisió": {"select": {"name": resultat.estat_revisio}},
+        "Confiança IA": {"select": {"name": resultat.confianca}},
         "URL Drive imatge": {"url": image_url},
         "Captura / imatge original": {
             "files": [{"name": filename or "captura.jpg", "external": {"url": image_url}}]
         },
+        "Notes revisió": {"rich_text": _rt(notes_revisio(
+            resultat.problemes, data.get("dubtes"), resultat.confianca, resultat.model_etiqueta))},
     }
 
     if data.get("data_inici"):
         date_obj = {"start": data["data_inici"]}
-        if data.get("data_fi") and data["data_fi"] != data["data_inici"]:
+        if data.get("data_fi"):
             date_obj["end"] = data["data_fi"]
         properties["Data detectada"] = {"date": date_obj}
+
+    textos = {
+        "categoria": None,  # select, a part
+        "lloc": "Lloc detectat",
+        "hora": "Hora detectada",
+        "preu": "Preu detectat",
+        "organitzador": "Organitzador detectat",
+        "programa": "Programa detectat",
+        "resum_web": "Resum web",
+    }
+    for camp, prop in textos.items():
+        if prop and data.get(camp):
+            properties[prop] = {"rich_text": _rt(data[camp], 200 if camp == "programa" else 2000)}
 
     if data.get("categoria"):
         properties["Categoria suggerida"] = {"select": {"name": data["categoria"]}}
 
-    if data.get("lloc"):
-        properties["Lloc detectat"] = {"rich_text": [{"text": {"content": data["lloc"]}}]}
-
-    if data.get("hora"):
-        properties["Hora detectada"] = {"rich_text": [{"text": {"content": data["hora"]}}]}
-
-    if data.get("preu"):
-        properties["Preu detectat"] = {"rich_text": [{"text": {"content": data["preu"]}}]}
-
-    if data.get("organitzador"):
-        properties["Organitzador detectat"] = {"rich_text": [{"text": {"content": data["organitzador"]}}]}
-
-    if data.get("programa"):
-        properties["Programa detectat"] = {"rich_text": [{"text": {"content": data["programa"][:200]}}]}
-
-    if data.get("resum_web"):
-        properties["Resum web"] = {"rich_text": [{"text": {"content": data["resum_web"]}}]}
+    if data.get("text_visible"):
+        properties["Text visible"] = {"rich_text": _rt(data["text_visible"], 8000)}
 
     if filename:
-        properties["Nom arxiu / captura"] = {"rich_text": [{"text": {"content": filename}}]}
+        properties["Nom arxiu / captura"] = {"rich_text": _rt(filename)}
 
-    payload = {
-        "parent": {"database_id": NOTION_DB_ID},
-        "properties": properties,
-    }
-
-    r = requests.post(f"{NOTION_API}/pages", headers=headers, json=payload, timeout=30)
+    payload = {"parent": {"database_id": NOTION_DB_ID}, "properties": properties}
+    r = requests.post(f"{NOTION_API}/pages", headers=_notion_headers(), json=payload, timeout=30)
     if not r.ok:
         print("Error Notion:", r.status_code, r.text, file=sys.stderr)
     r.raise_for_status()
     return r.json()
 
 
+def notion_create_fallback_page(image_url, filename, motiu):
+    """Fila mínima quan cap IA ha respost en HORES_MAX_REINTENT hores."""
+    properties = {
+        "Nom provisional": {"title": _rt("Cartell sense llegir (IA no disponible)")},
+        "Font": {"select": {"name": "Instagram"}},
+        "Model IA": {"select": {"name": "Manual"}},
+        "Tipus entrada": {"select": {"name": "Captura Instagram"}},
+        "Estat revisió": {"select": {"name": "Pendent revisar"}},
+        "Confiança IA": {"select": {"name": "Baixa"}},
+        "URL Drive imatge": {"url": image_url},
+        "Captura / imatge original": {"files": [{"name": filename, "external": {"url": image_url}}]},
+        "Nom arxiu / captura": {"rich_text": _rt(filename)},
+        "Notes revisió": {"rich_text": _rt(
+            f"⚠️ Cap proveïdor d'IA ha respost en {HORES_MAX_REINTENT} h. Cal omplir-la a mà.\n{motiu}")},
+    }
+    payload = {"parent": {"database_id": NOTION_DB_ID}, "properties": properties}
+    r = requests.post(f"{NOTION_API}/pages", headers=_notion_headers(), json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def _missatge_resultat(resultat):
+    d = resultat.dades
+    if resultat.estat_revisio == "Duplicada":
+        cap = "♻️ Sembla un duplicat (mateix títol i data). L'he afegit marcat com a «Duplicada»."
+    elif resultat.confianca == "Alta":
+        cap = "✅ Afegit a INBOX AGENDA · confiança alta"
+    elif resultat.estat_revisio == "Revisar data":
+        cap = "⚠️ Afegit a INBOX AGENDA · revisa la data"
+    elif resultat.estat_revisio == "Revisar lloc":
+        cap = "⚠️ Afegit a INBOX AGENDA · revisa el lloc"
+    else:
+        cap = f"🟡 Afegit a INBOX AGENDA · confiança {resultat.confianca.lower()}"
+    return (
+        f"{cap}\n«{d.get('titol') or 'Sense títol'}»\n"
+        f"📅 {d.get('data_inici') or '(sense data)'}"
+        + (f" · {d.get('hora')}" if d.get("hora") else "")
+        + f"\n📍 {d.get('lloc') or '(sense lloc)'}\n"
+        f"🏷️ {d.get('categoria') or '(sense categoria)'}\n"
+        f"🤖 {resultat.model_etiqueta}"
+    )
+
+
 def process_photo_message(message):
+    """Retorna False si cal reintentar el missatge al proper cicle."""
     chat_id = message["chat"]["id"]
     if "photo" in message:
         file_id = message["photo"][-1]["file_id"]  # la resolució més alta
     else:
         file_id = message["document"]["file_id"]  # imatge enviada com a fitxer
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    edat_hores = (time.time() - message.get("date", time.time())) / 3600
+    primer_intent = edat_hores < 1  # el bot corre cada hora
 
     try:
-        telegram_send_message(chat_id, "📥 Rebut, processant la imatge...")
+        if primer_intent:
+            telegram_send_message(chat_id, "📥 Rebut, processant la imatge...")
 
         img_bytes, ext = telegram_download_photo(file_id)
         mime = "image/png" if ext.lower() == "png" else "image/jpeg"
@@ -400,34 +353,35 @@ def process_photo_message(message):
                 "no s'ha duplicat l'entrada a Notion.",
             )
             return
-
-        data = gemini_extract(img_bytes, mime_type=mime)
-
-        upload_bytes = crop_to_poster(img_bytes, data.get("requadre_cartell"), mime_type=mime)
-
         filename = f"screenshot_{image_hash}_{ts}.{ext}"
+
+        try:
+            resultat = extreu_cartell(img_bytes, mime, es_duplicat=notion_find_duplicate)
+        except TotsElsProveidorsHanFallat as e:
+            print("Cap proveïdor d'IA disponible:", e, file=sys.stderr)
+            if edat_hores >= HORES_MAX_REINTENT:
+                image_url = drive_upload(img_bytes, filename, mime_type=mime)
+                notion_create_fallback_page(image_url, filename, str(e)[:1500])
+                telegram_send_message(
+                    chat_id,
+                    f"⚠️ Cap servei d'IA ha respost en {HORES_MAX_REINTENT} h. He desat la imatge a "
+                    "INBOX AGENDA sense dades perquè no es perdi: cal omplir-la a mà.",
+                )
+                return
+            if primer_intent:
+                telegram_send_message(
+                    chat_id,
+                    "⏳ Els serveis d'IA estan saturats ara mateix. "
+                    "No cal que facis res: ho tornaré a provar automàticament al proper cicle.",
+                )
+            return False
+
+        upload_bytes = crop_to_poster(
+            img_bytes, resultat.dades.get("requadre_cartell"), mime_type=mime)
         image_url = drive_upload(upload_bytes, filename, mime_type=mime)
 
-        notion_create_page(data, image_url, filename=filename)
-
-        resum = data.get("titol") or "activitat"
-        telegram_send_message(
-            chat_id,
-            f"✅ Afegit a INBOX AGENDA: «{resum}»\n"
-            f"📅 {data.get('data_inici') or '(sense data)'}"
-            + (f" · {data.get('hora')}" if data.get("hora") else "")
-            + f"\n📍 {data.get('lloc') or '(sense lloc)'}\n"
-            f"🏷️ {data.get('categoria') or '(sense categoria)'}\n\n"
-            f"Revisa-ho i completa el que falti a Notion.",
-        )
-    except GeminiBusyError as e:
-        print("Gemini saturat, es reintentarà:", repr(e), file=sys.stderr)
-        telegram_send_message(
-            chat_id,
-            "⏳ El servei d'IA (Gemini) està saturat ara mateix. "
-            "No cal que facis res: ho tornaré a provar automàticament al proper cicle.",
-        )
-        return False
+        notion_create_page(resultat, image_url, filename=filename)
+        telegram_send_message(chat_id, _missatge_resultat(resultat))
     except Exception as e:  # noqa: BLE001
         print("Error processant missatge:", repr(e), file=sys.stderr)
         telegram_send_message(
@@ -457,7 +411,7 @@ def main():
         message = update.get("message")
         if message and is_image_message(message):
             if process_photo_message(message) is False:
-                # Gemini saturat: no confirmem aquest missatge ni els següents,
+                # IA no disponible: no confirmem aquest missatge ni els següents,
                 # així es tornaran a processar al proper run.
                 break
         confirm_offset = update["update_id"] + 1
