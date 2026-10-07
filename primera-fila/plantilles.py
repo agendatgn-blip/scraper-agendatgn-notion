@@ -42,6 +42,15 @@ html, body { margin:0; padding:0; background:var(--crema); }
 .card.feat .media { background:var(--rosa); }
 .media img { width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(1) contrast(1.2) brightness(1.05); mix-blend-mode:screen; }
 .media.buit { background:repeating-linear-gradient(45deg,#1F4FC1 0 10px,#5A80D9 10px 20px); }
+/* Imatge tipus: quan l'activitat no té imatge pròpia */
+.media.tipus { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+               background:repeating-linear-gradient(45deg,#1F4FC1 0 10px,#2E5DCC 10px 20px); padding:10px; }
+.card.feat .media.tipus { background:repeating-linear-gradient(45deg,#FF3EA5 0 12px,#FF5BB2 12px 24px); }
+.media.tipus .tcat { font-family:'Bowlby One',sans-serif; color:var(--groc); text-transform:uppercase; text-align:center;
+                     line-height:.95; text-shadow:3px 3px 0 var(--rosa); max-width:100%; overflow-wrap:anywhere; }
+.card.feat .media.tipus .tcat { text-shadow:3px 3px 0 var(--blau); }
+.media.tipus .tmarca { font-family:'Space Mono',monospace; font-weight:700; font-size:10px; letter-spacing:.14em;
+                       color:var(--crema); background:var(--blau); padding:2px 6px; }
 .info { flex-grow:1; min-width:0; padding:10px 12px 11px; display:flex; flex-direction:column; gap:6px; }
 .card.h .info { padding:16px 18px; gap:8px; }
 .chips { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
@@ -101,11 +110,16 @@ def capcalera(gran, chip, s1, s2, mida=76):
             f'<div class="stamp"><b style="font-size:{44 if len(s1) > 2 else 52}px">{e(s1)}</b><small>{e(s2)}</small></div></div>')
 
 
-def media(img, h=None, w=None):
+def media(img, h=None, w=None, cat=""):
     estil = (f"height:{h}px;" if h else "") + (f"width:{w}px;" if w else "")
     if img:
         return f'<div class="media" style="{estil}"><img src="{img}"></div>'
-    return f'<div class="media buit" style="{estil}"></div>'
+    # Imatge tipus: trama riso + categoria (o "Agenda") + marca
+    rotul = (cat or "Agenda").strip()
+    costat = min(h or 300, w or 420)
+    mida = max(18, min(54, int(costat / max(4, len(rotul)) * 1.7)))
+    return (f'<div class="media tipus" style="{estil}"><span class="tcat" style="font-size:{mida}px">{e(rotul)}</span>'
+            f'<span class="tmarca">@AGENDATGN</span></div>')
 
 
 # ---------------------------------------------------------------- 1 · portada
@@ -192,9 +206,9 @@ def _targeta(a, h, n_fila, destacada, num):
     stick = '<span class="stick">GRATIS!</span>' if destacada and a["preu"] == "Gratuït" else ""
     cls = "card " + ("feat " if destacada else "") + ("h" if horiz else "v") + (" hero" if hero else "")
     if horiz:
-        return f'<div class="{cls}">{media(a["img"], w=420 if h >= 380 else 340)}{info}{stick}</div>'
+        return f'<div class="{cls}">{media(a["img"], w=420 if h >= 380 else 340, cat=a.get("cat") or a.get("categoria"))}{info}{stick}</div>'
     info_h = 230 if hero else (150 if n_fila == 2 else 158)
-    return f'<div class="{cls}">{media(a["img"], h=h - info_h)}{info}{stick}</div>'
+    return f'<div class="{cls}">{media(a["img"], h=h - info_h, cat=a.get("cat") or a.get("categoria"))}{info}{stick}</div>'
 
 
 def pagina_dia(ctx, dia, acts, continuacio, nums):
