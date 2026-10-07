@@ -247,6 +247,9 @@ def build_activitat_properties(inbox_props, programes_index=None):
 
     preu_text = get_prop_text(inbox_props, "Preu detectat")
     preu_num = parse_preu(preu_text)
+    sense_preu = not preu_text or "pendent" in preu_text.lower()
+    if preu_num is None and sense_preu:
+        preu_num = 0   # criteri AgendaTGN: si no consta preu, és gratuït (es pot corregir a mà)
     if preu_num is not None:
         properties["Preu"] = {"number": preu_num}
     if preu_text and "pendent" not in preu_text.lower():
@@ -261,6 +264,10 @@ def build_activitat_properties(inbox_props, programes_index=None):
     descripcio = get_prop_text(inbox_props, "Resum web")
     if descripcio:
         properties["Descripció"] = {"rich_text": [{"text": {"content": descripcio[:2000]}}]}
+
+    entrades_url = get_prop_text(inbox_props, "URL entrades")
+    if entrades_url:
+        properties["URL reserva"] = {"url": entrades_url}
 
     imatge_url = get_prop_text(inbox_props, "URL Drive imatge")
     if imatge_url:
