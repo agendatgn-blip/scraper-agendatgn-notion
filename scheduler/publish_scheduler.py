@@ -51,6 +51,9 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import entrades_llocs  # noqa: E402  (enllaços d'entrades per lloc, a l'arrel del repo)
 from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------------------------
@@ -540,8 +543,12 @@ def process_activity(page):
         "preu": get_prop_text(props, "Preu"),
         "data_text": data_text,
         "preu_text": get_prop_text(props, "Preu (text)") or _preu_llegible(get_prop_text(props, "Preu")),
-        "entrades": get_prop_text(props, "URL reserva") or "",
     }
+    rel_lloc = [x["id"] for x in (props.get("Lloc (fitxa)") or {}).get("relation", [])]
+    activity["entrades"] = entrades_llocs.resol(
+        url_propi=get_prop_text(props, "URL reserva") or "",
+        preu_text=get_prop_text(props, "Preu (text)") or "", preu_num=get_prop_text(props, "Preu"),
+        lloc_text=activity["lloc"], lloc_ids=rel_lloc, llocs=LLOCS_ENTRADES)
     categoria = get_prop_text(props, "Categoria") or ""
 
     publicat_avancament = get_prop_text(props, "Publicat Avançament")
@@ -576,12 +583,14 @@ def process_activity(page):
 
 
 RECENTS = []
+LLOCS_ENTRADES = []
 
 
 def main():
     check_env()
     import veu_agendatgn as veu
     RECENTS.extend(veu.recents(10))
+    LLOCS_ENTRADES.extend(entrades_llocs.carrega(NOTION_TOKEN))
     print(f"Executant scheduler — {date.today().isoformat()}")
     activities = query_approved_activities()
     print(f"Activitats aprovades trobades: {len(activities)}")
