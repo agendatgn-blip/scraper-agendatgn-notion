@@ -42,6 +42,7 @@ Dependències (requirements.txt):
 """
 
 import os
+import re
 import sys
 import json
 from datetime import datetime, date, timedelta
@@ -171,6 +172,8 @@ def get_prop_text(props, name):
         return prop["number"]
     if t == "checkbox":
         return prop["checkbox"]
+    if t == "url":
+        return prop.get("url") or ""
     if t == "date":
         return prop["date"]["start"] if prop["date"] else None
     return None
@@ -326,6 +329,8 @@ def generate_text(activity, mode, recents=None):
         f"- Nom: {nom}\n- Data: {data_text}\n- Hora: {hora}\n- Lloc: {lloc}\n"
         f"- Preu: {activity.get('preu_text') or ''}\n- Descripció: {activity['descripcio']}\n\n"
     )
+    dades += ("Digues sempre el preu. Si és «Gratuït», digues que és gratis o d'entrada lliure, amb naturalitat.\n"
+              if activity.get("preu_text") else "")
     if mode == "avancament":
         instruccio = dades + (
             f"Escriu un post per a X que avanci aquesta activitat. Digues la data tal qual («el {data_text}»), "
@@ -336,7 +341,7 @@ def generate_text(activity, mode, recents=None):
             "Escriu un post per a X per dir que és AVUI. Inclou hora i lloc si hi són. "
             "No hi posis cap crida a l'acció ni enllaç."
         )
-    marge = 270 - (len(cta) + 2 if cta else 0)
+    marge = 270 - (len(cta) + 2 if cta else 0) - (len(LINIA_ENTRADES) + 23 + 2 if activity.get("entrades") else 0)
     resultat = veu.escriure(instruccio, marge, GROQ_API_KEY, textos_recents=recents)
     if not resultat:
         # Xarxa de seguretat: text simple a partir de les dades
@@ -377,8 +382,43 @@ def post_to_twitter(text, image_bytes=None):
         raise
 
 
+LINIA_ENTRADES = "Entrades: "
+
+
+def _x_len(text):
+    """Llargada tal com la compta X: cada URL compta 23 caràcters."""
+    return len(re.sub(r"https?://\S+", "x" * 23, text))
+
+
+def _preu_al_text(text, preu):
+    t = text.lower()
+    if not preu:
+        return True
+    if preu.lower() == "gratuït":
+        return any(x in t for x in ("gratu", "gratis", "entrada lliure", "lliure", "de franc", "sense cost"))
+    return preu.lower() in t or preu.replace(" ", "").lower() in t.replace(" ", "")
+
+
+def _linia_preu(preu):
+    return preu if preu.lower().startswith(("gratu", "preu", "entrada", "aportació", "des de")) else f"Preu: {preu}"
+
+
+def text_x_final(text, activity, cta=None):
+    """Post de X: text + preu (si la IA no l'ha dit) + enllaç d'entrades + CTA si hi cap."""
+    out = text
+    preu = activity.get("preu_text", "")
+    if preu and not _preu_al_text(out, preu) and _x_len(out) + len(_linia_preu(preu)) + 1 <= 280:
+        out += f"\n{_linia_preu(preu)}"
+    if activity.get("entrades") and _x_len(out) + len(LINIA_ENTRADES) + 23 + 2 <= 280:
+        out += f"\n\n{LINIA_ENTRADES}{activity['entrades']}"
+    if cta and _x_len(out) + len(cta) + 2 <= 280:
+        out += f"\n\n{cta}"
+    return out
+
+
 def facebook_text(text, activity, cta=None):
-    """Text de X + una línia pràctica (sense emojis) + CTA opcional. Sense URLs."""
+    """Text + una línia pràctica (data · hora · lloc · preu, sense emojis) +
+    enllaç d'entrades si n'hi ha + CTA opcional. El preu hi surt sempre."""
     parts = [activity.get("data_text", "").capitalize(), activity.get("hora", ""),
              _lloc_complet(activity), activity.get("preu_text", "")]
     detall = " · ".join(p for p in parts if p)
@@ -386,6 +426,10 @@ def facebook_text(text, activity, cta=None):
     ja_hi_es = all((x or "").lower() in text.lower() for x in [activity.get("hora"), _lloc_complet(activity)])
     if detall and not ja_hi_es:
         out += f"\n\n{detall}"
+    elif not _preu_al_text(text, activity.get("preu_text", "")):
+        out += f"\n\n{_linia_preu(activity['preu_text'])}"
+    if activity.get("entrades"):
+        out += f"\n\n{LINIA_ENTRADES}{activity['entrades']}"
     if cta:
         out += f"\n\n{cta}"
     return out
@@ -444,7 +488,7 @@ def send_to_telegram_for_group(text, image_bytes=None):
 
 def publish_everywhere(text, cta, image_bytes, activity, vol_facebook, clau):
     import veu_agendatgn as veu
-    text_x = f"{text}\n\n{cta}" if cta and len(text) + len(cta) + 2 <= 280 else text
+    text_x = text_x_final(text, activity, cta)
     post_to_twitter(text_x, image_bytes=image_bytes)
     try:
         import threads_pub
@@ -464,8 +508,9 @@ def publish_everywhere(text, cta, image_bytes, activity, vol_facebook, clau):
 # ---------------------------------------------------------------------------
 
 def _preu_llegible(preu):
+    # Criteri AgendaTGN: si no consta preu, és gratuït
     if preu is None or preu == "":
-        return ""
+        return "Gratuït"
     try:
         return "Gratuït" if float(preu) == 0 else f"{float(preu):g} €"
     except (TypeError, ValueError):
@@ -495,6 +540,7 @@ def process_activity(page):
         "preu": get_prop_text(props, "Preu"),
         "data_text": data_text,
         "preu_text": get_prop_text(props, "Preu (text)") or _preu_llegible(get_prop_text(props, "Preu")),
+        "entrades": get_prop_text(props, "URL reserva") or "",
     }
     categoria = get_prop_text(props, "Categoria") or ""
 
