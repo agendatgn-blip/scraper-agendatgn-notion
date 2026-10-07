@@ -37,6 +37,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import entrades_llocs  # noqa: E402  (enllaços d'entrades per lloc, a l'arrel del repo)
+import lloc_matcher  # noqa: E402  (text de "Lloc" → fitxa de 📍 LLOCS)
 
 # ---------------------------------------------------------------------------
 # Configuració
@@ -212,7 +213,7 @@ def parse_preu(preu_text):
     return None
 
 
-def build_activitat_properties(inbox_props, programes_index=None, llocs_entrades=None):
+def build_activitat_properties(inbox_props, programes_index=None, llocs_entrades=None, matcher=None):
     titol = (
         get_prop_text(inbox_props, "Títol detectat")
         or get_prop_text(inbox_props, "Nom provisional")
@@ -234,6 +235,15 @@ def build_activitat_properties(inbox_props, programes_index=None, llocs_entrades
     lloc = get_prop_text(inbox_props, "Lloc detectat")
     if lloc:
         properties["Lloc"] = {"rich_text": [{"text": {"content": lloc}}]}
+        # Fitxa de 📍 LLOCS (perquè surti al mapa del PDF); la crea si és un lloc nou
+        if matcher is not None:
+            try:
+                lloc_id, info = matcher.troba_o_crea(lloc)
+                print(f"  Lloc «{lloc}» → {info}")
+                if lloc_id:
+                    properties["Lloc (fitxa)"] = {"relation": [{"id": lloc_id}]}
+            except Exception as e:  # noqa: BLE001  (mai ha d'impedir crear l'activitat)
+                print(f"  Avís: no s'ha pogut enllaçar el lloc «{lloc}» ({e})")
 
     hora = get_prop_text(inbox_props, "Hora detectada")
     if hora:
@@ -332,13 +342,18 @@ def main():
         print(f"AVÍS: no s'han pogut llegir els 🎪 Programes ({e}). Es continua sense enllaçar-los.")
 
     llocs_entrades = entrades_llocs.carrega(NOTION_TOKEN)
+    try:
+        matcher = lloc_matcher.LlocMatcher(NOTION_TOKEN)
+    except Exception as e:  # noqa: BLE001
+        matcher = None
+        print(f"AVÍS: no s'han pogut llegir els 📍 LLOCS ({e}). Es continua sense enllaçar-los.")
     print(f"Llocs amb enllaç d'entrades: {len(llocs_entrades)}")
 
     for entry in entries:
         props = entry["properties"]
         titol = get_prop_text(props, "Títol detectat") or get_prop_text(props, "Nom provisional") or "(sense títol)"
         try:
-            activitat_props = build_activitat_properties(props, programes_index, llocs_entrades)
+            activitat_props = build_activitat_properties(props, programes_index, llocs_entrades, matcher)
             nova_activitat = create_activitat(activitat_props)
             mark_inbox_converted(entry["id"], nova_activitat["id"])
             print(f"  -> Convertida: «{titol}»")
