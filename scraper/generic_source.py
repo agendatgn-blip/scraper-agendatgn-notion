@@ -127,7 +127,9 @@ def processa_font(font, mode_test=False):
         # Imatge: només si l'activitat té pàgina pròpia (si no, seria la de l'agenda)
         imatge_url = None
         if url_act != url:
-            imatge_url = imatges.imatge_de_pagina(url_act)
+            imatge_url, entrades = imatges.analitza_pagina(url_act)
+            if entrades:
+                act["url_entrades"] = entrades
             if imatge_url and imatge_url == imatge_web:
                 imatge_url = None
             time.sleep(PAUSA)
@@ -137,7 +139,7 @@ def processa_font(font, mode_test=False):
             notes += " Sense imatge pròpia: cal buscar-la o es farà servir la imatge tipus."
 
         if mode_test:
-            log(f"  [TEST] {act.get('titol')} | {act.get('data')} | {url_act} | imatge: {imatge_url or '—'}")
+            log(f"  [TEST] {act.get('titol')} | {act.get('data')} | {url_act} | imatge: {imatge_url or '—'} | entrades: {act.get('url_entrades') or '—'}")
             continue
 
         try:
