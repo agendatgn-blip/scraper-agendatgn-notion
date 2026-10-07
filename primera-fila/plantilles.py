@@ -69,6 +69,11 @@ html, body { margin:0; padding:0; background:var(--crema); }
 .stick { position:absolute; top:-14px; right:12px; background:var(--rosa); color:var(--crema); font-family:'Bowlby One',sans-serif;
          font-size:14px; padding:4px 10px; transform:rotate(6deg); }
 .sp { flex-grow:1; }
+.peu-card { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.btn-ent { display:inline-block; background:var(--rosa); color:var(--crema); font-family:'Bowlby One',sans-serif; font-size:12px;
+           letter-spacing:.06em; padding:4px 10px 3px; border:2px solid var(--blau); box-shadow:2px 2px 0 var(--blau);
+           text-decoration:none; white-space:nowrap; }
+.card.feat .btn-ent, .card.h .btn-ent { font-size:14px; padding:5px 12px 4px; }
 a { color:inherit; text-decoration:none; }
 .sec { font-family:'Bowlby One',sans-serif; font-size:17px; color:var(--crema); background:var(--blau); align-self:flex-start; padding:3px 12px; }
 .hatch-b { background:repeating-linear-gradient(45deg,#1F4FC1 0 10px,#5A80D9 10px 20px); }
@@ -108,6 +113,11 @@ def capcalera(gran, chip, s1, s2, mida=76):
     return (f'<div class="hdr"><div class="bar"></div><div class="tit">'
             f'<span class="big" style="font-size:{mida}px">{e(gran)}</span><span class="chip">{e(chip)}</span></div>'
             f'<div class="stamp"><b style="font-size:{44 if len(s1) > 2 else 52}px">{e(s1)}</b><small>{e(s2)}</small></div></div>')
+
+
+def boto_entrades(url):
+    """Botó clicable del PDF que porta directe a comprar entrades / inscriure's."""
+    return f'<a class="btn-ent" href="{e(url, quote=True)}">ENTRADES →</a>' if url else ""
 
 
 def media(img, h=None, w=None, cat=""):
@@ -195,6 +205,10 @@ def _targeta(a, h, n_fila, destacada, num):
     preu = ""
     if a["preu"]:
         preu = f'<span class="preu {"free" if a["preu"] == "Gratuït" else "paid"}">{e(a["preu"])}</span>'
+    if a.get("reserva"):
+        preu += boto_entrades(a["reserva"])
+    if preu:
+        preu = f'<div class="peu-card">{preu}</div>'
     blurb = (f'<span class="blurb">{e(a["descripcio"][:220])}</span>'
              if a["descripcio"] and (hero or (horiz and h >= 240)) else "")
     lloc = a["lloc"] + (f' ({a["municipi"]})' if a["municipi"] and "tarragona" not in a["municipi"].lower() else "")
@@ -267,7 +281,8 @@ def pagina_expos(ctx, grups):
 <span style="font-size:12.5px;font-weight:700;color:var(--tinta)">{e(x["lloc"])}</span></div>
 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
 <span style="font-size:12px;font-weight:800">{e(x["quan"])}</span>
-{f'<span style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em">{e(x["preu"])}</span>' if x["preu"] else ""}</div></div>"""
+{f'<span style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em">{e(x["preu"])}</span>' if x["preu"] else ""}
+{boto_entrades(x.get("reserva"))}</div></div>"""
     return f"""<section class="pg">{capcalera("EXPOS", "Índex d'exposicions a Tarragona", "ART", "I MÉS")}
 <div style="display:flex;flex-direction:column;gap:6px">{cos}</div>{peu(ctx)}</section>"""
 

@@ -128,7 +128,7 @@ def preu_text(p):
         return t
     n = P(p, "Preu")
     if n is None:
-        return ""
+        return "Gratuït"   # criteri AgendaTGN: si no consta preu, és gratuït
     try:
         return "Gratuït" if float(n) == 0 else f"{float(n):g} €"
     except (TypeError, ValueError):
