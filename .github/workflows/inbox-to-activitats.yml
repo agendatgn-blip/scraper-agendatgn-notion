@@ -5,7 +5,12 @@ on:
     # Cada dia a les 07:30 (una mica abans que el scheduler de publicació,
     # perquè les activitats acabades de crear ja hi puguin ser a temps)
     - cron: "30 5 * * *"
-  workflow_dispatch: {}   # permet executar-lo manualment des de GitHub
+  workflow_dispatch:   # permet executar-lo manualment des de GitHub
+    inputs:
+      dry_run:
+        description: "Només llistar què faria amb els llocs, sense escriure res (si / no)"
+        required: false
+        default: "no"
 
 jobs:
   sync-inbox:
@@ -22,9 +27,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Proves del matcher de llocs
+        id: proves
+        run: python -m unittest tests.test_lloc_matcher
+
       - name: Run sync
+        if: ${{ github.event.inputs.dry_run != 'si' }}
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_INBOX_DATASOURCE_ID: ${{ secrets.NOTION_INBOX_DATASOURCE_ID }}
           NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
         run: python inbox_sync/inbox_to_activitats.py
+
+      - name: Enllaçar llocs (activitats futures sense "Lloc (fitxa)")
+        # s'executa encara que falli el pas anterior, però mai si fallen les proves
+        if: ${{ !cancelled() && steps.proves.outcome == 'success' }}
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "si" ]; then
+            python eines/enllaca_llocs.py --dry-run
+          else
+            python eines/enllaca_llocs.py
+          fi

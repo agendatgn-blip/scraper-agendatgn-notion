@@ -1,0 +1,522 @@
+[
+{
+"id": "3e85d0172af581978626c4c39509192f",
+"nom": "Abacus Tarragona",
+"adreca": "C/ del Gasòmetre, 32"
+},
+{
+"id": "3e85d0172af5811691b4cccfb5b03301",
+"nom": "Amb Art",
+"adreca": ""
+},
+{
+"id": "3f25d0172af5817c9454e2164df23911",
+"nom": "Anella Mediterrània",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5818a8c68d1bad73ccc34",
+"nom": "Antic Ajuntament",
+"adreca": "C/ Major, 41"
+},
+{
+"id": "3f25d0172af58184a7dbf71c4e3e402d",
+"nom": "Antic Centre Penitenciari (Antiga Presó)",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58175a19ee119ec4c8d6a",
+"nom": "Antiga Audiència",
+"adreca": "Plaça del Pallol, 3"
+},
+{
+"id": "3f25d0172af581fe8ee1e0e405cc3574",
+"nom": "Arxiu del Port",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5813cae27e148a9510a0e",
+"nom": "Ateneu de Tarragona",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5814dbf89d67ca770ac4e",
+"nom": "Auditori Camp de Mart",
+"adreca": "Camp de Mart"
+},
+{
+"id": "3e85d0172af58123ae43ed3824e98223",
+"nom": "Auditori Diputació",
+"adreca": "C/ de Pere Martell, 2"
+},
+{
+"id": "3e85d0172af581ac98cbce8220ef5dfa",
+"nom": "Bacus Tarragona",
+"adreca": "C/ de Mallorca, 14"
+},
+{
+"id": "3e85d0172af581bebeeaef656742bddf",
+"nom": "Bar 12 Topos",
+"adreca": "C/ d'Apodaca, 3"
+},
+{
+"id": "3e85d0172af5818d9066c493dd75fe5d",
+"nom": "Bar Eclèctic",
+"adreca": "C/ del Trinquet Vell, 3"
+},
+{
+"id": "3e85d0172af5814eb4aad511bd493614",
+"nom": "Bar Los Maños",
+"adreca": "Pg. de la Independència, 5"
+},
+{
+"id": "3f25d0172af581dab794d8ab859c58ae",
+"nom": "Biblioteca de Torreforta Pepita Ferrer",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58188b595df7fecce0891",
+"nom": "Bodegueta del Pagès",
+"adreca": "Rambla Vella, 45"
+},
+{
+"id": "3e85d0172af581a7a57bfd4053f7a3b7",
+"nom": "Buenas Raíces Bar",
+"adreca": "Av. de Ramón y Cajal, 56"
+},
+{
+"id": "3e85d0172af581e18300f751a2c99d8c",
+"nom": "Café Restaurant La Cantonada",
+"adreca": ""
+},
+{
+"id": "3f25d0172af581b0bc5dcd00d4ab54da",
+"nom": "CaixaForum Tarragona",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58101ab09f3e9ac639476",
+"nom": "Cal Pobre Plataforma Creativa",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58185beb0c00a76627059",
+"nom": "Campus URV",
+"adreca": "Av. Catalunya, 35"
+},
+{
+"id": "3f25d0172af581af9c28f88a5dae29f2",
+"nom": "Capsa de Música (Tabacalera)",
+"adreca": ""
+},
+{
+"id": "3f25d0172af581aa891fe055a2c2549d",
+"nom": "Carrer Merceria, 17",
+"adreca": "C/ de la Merceria, 17"
+},
+{
+"id": "3f25d0172af58176a734e7c369d9af95",
+"nom": "Casa Castellarnau",
+"adreca": "C/ dels Cavallers, 14"
+},
+{
+"id": "3e85d0172af581739453e7d7340d6ce4",
+"nom": "Casal Popular Sageta de Foc",
+"adreca": "C/ de Sant Domènec, 18"
+},
+{
+"id": "3f25d0172af5811e8000e980cfab0976",
+"nom": "Centre Cívic de Sant Pere i Sant Pau",
+"adreca": ""
+},
+{
+"id": "3f25d0172af581158903e41e4ae6180a",
+"nom": "Centre Cívic de Sant Salvador",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581419ba3db2d18df9755",
+"nom": "Chef Clive",
+"adreca": "Via Augusta, 8"
+},
+{
+"id": "3f25d0172af581f7a648d99448d9f147",
+"nom": "Conjunt romà de Centcelles",
+"adreca": "Constantí"
+},
+{
+"id": "3e85d0172af581bbba55fa63ce210c2c",
+"nom": "Dabigom S.C.P.",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5817fb589cdcc0f275c75",
+"nom": "Ebrium Project",
+"adreca": "C/ Reina Maria Cristina, 27"
+},
+{
+"id": "3e85d0172af5811dacaac6913a9febe7",
+"nom": "El Monyo Bodegueta",
+"adreca": "Baixada de la Peixateria, 10"
+},
+{
+"id": "3e85d0172af581f180daeabd39586498",
+"nom": "Espai Evohé",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581cc989bcdfb3648d861",
+"nom": "Espai Jove Kesse",
+"adreca": "C/ de Sant Antoni Maria Claret, 12"
+},
+{
+"id": "3e85d0172af5813f877fcf4c1f6eef6c",
+"nom": "Espai Jove La Palmera",
+"adreca": "Av. d'Estanislau Figueres, 65"
+},
+{
+"id": "3e85d0172af58112a780d9c952afb179",
+"nom": "Espai SANTA TECA",
+"adreca": ""
+},
+{
+"id": "3f25d0172af581588106e1c78707960a",
+"nom": "Espai Turisme",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581d08d7ec20b2c5a0a45",
+"nom": "Galeria Catedral",
+"adreca": "C/ de la Mare de Déu del Claustre, 7"
+},
+{
+"id": "3e85d0172af5811987a3f3c4179f6432",
+"nom": "Galeria Fefu Forés",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58198b8c2e96de61c4749",
+"nom": "Highland",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58185b6d9ef8b83339881",
+"nom": "Hotel Imperial Tarraco",
+"adreca": "Rambla Vella, 2"
+},
+{
+"id": "3e85d0172af58159a0aae9b9835eee8b",
+"nom": "Hoto Lounge Club",
+"adreca": "C/ Major, 24"
+},
+{
+"id": "3e85d0172af581898d08ee470ba693c7",
+"nom": "L'Alquimista",
+"adreca": "C/ del Trinquet Vell, 14"
+},
+{
+"id": "3e85d0172af58122a1bdfdb5da3415b6",
+"nom": "La Casa del Jardí",
+"adreca": "Via Augusta, 2"
+},
+{
+"id": "3e85d0172af5815d9392c5a0162ae1dd",
+"nom": "La Clotxa",
+"adreca": "Rambla Vella, 59"
+},
+{
+"id": "3e85d0172af581459bd1f8ec547231b8",
+"nom": "La Curva Bar",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581a09415c67c384a9de7",
+"nom": "La Gata Insubmisa",
+"adreca": "C/ d'August, 23"
+},
+{
+"id": "3e85d0172af5816784c0ff06b3633c14",
+"nom": "La Grey, galeria art contemporani",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581dd94f0c2a9167bd130",
+"nom": "La Guingueta de l'Alquimista",
+"adreca": "C/ del Trinquet Vell, 11"
+},
+{
+"id": "3e85d0172af581db9cfbdd4218ecc23c",
+"nom": "La Magina del Serrallo",
+"adreca": "C/ d'Espinach, 28"
+},
+{
+"id": "3e85d0172af581669e63cef8defe4e8b",
+"nom": "La Treva",
+"adreca": "C/ del Còs del Bou, 8"
+},
+{
+"id": "3e85d0172af581a3a604db4d2be14bdc",
+"nom": "Les Granotes",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58139afd6ff147fe32646",
+"nom": "Librería La Quimera",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581359a47e8f0dea329dc",
+"nom": "Limboo Beach Club",
+"adreca": "Pg. Marítim Rafael Casanova"
+},
+{
+"id": "3e85d0172af581028c67fab91d60b534",
+"nom": "Llibreria Adserà",
+"adreca": "Rambla Nova, 94"
+},
+{
+"id": "3e85d0172af5814da266d0f06beff6be",
+"nom": "Llibreria El Soterrani",
+"adreca": "C/ d'August, 50"
+},
+{
+"id": "3e85d0172af5819ebbf5da47a126ba2c",
+"nom": "Llibreria La Capona",
+"adreca": "C/ del Gasòmetre, 41"
+},
+{
+"id": "3e85d0172af58143a0bbf6c8009cdaa8",
+"nom": "Llibreria La Caverna",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581a19a8dcea6ed0bf86c",
+"nom": "Llibreria Re-Read",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581348f65ff87aed70a9e",
+"nom": "Mala Bar",
+"adreca": ""
+},
+{
+"id": "3f25d0172af5817d8bc7ee1cc291f204",
+"nom": "MAMT · Museu d'Art Modern",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5819196cdef29977fafd8",
+"nom": "Mèdol Cultura Contemporània",
+"adreca": "Casa Canals · C/ d'En Granada, 11"
+},
+{
+"id": "3e85d0172af581a9bb3cf1c534d95cb0",
+"nom": "Palau Firal",
+"adreca": "C/ Arquitecte Rovira, 2"
+},
+{
+"id": "3f25d0172af581eea989efc76f41a61c",
+"nom": "Parc de la Ciutat (Quinta de Sant Rafael)",
+"adreca": ""
+},
+{
+"id": "3f25d0172af5810ebeeae9ee746582fc",
+"nom": "Passeig de les Palmeres",
+"adreca": ""
+},
+{
+"id": "3f25d0172af5810aae96ef72644af9ab",
+"nom": "Pedrera del Mèdol",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581c78bc7ed58135209bc",
+"nom": "Personal Joieria",
+"adreca": "C/ Major, 36"
+},
+{
+"id": "3f25d0172af58161b8f9da5b4ee8c344",
+"nom": "Pla de la Seu",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58158b9def84873131f35",
+"nom": "Plaza del Forum",
+"adreca": ""
+},
+{
+"id": "3f25d0172af581559588c6d746e71f98",
+"nom": "Plaça Corsini",
+"adreca": ""
+},
+{
+"id": "3f25d0172af581f5bc52c590d0538514",
+"nom": "Plaça de la Font (Bonavista)",
+"adreca": "C/ Quinze, 10, Bonavista"
+},
+{
+"id": "3f25d0172af581eea3b6c55e187fbeef",
+"nom": "Port Esportiu de Tarragona",
+"adreca": "Pg. Marítim Rafael Casanova"
+},
+{
+"id": "3f25d0172af581eaa9d4cc14de4f0d7c",
+"nom": "Pretori romà",
+"adreca": ""
+},
+{
+"id": "3f25d0172af5812d850ceabe4694abed",
+"nom": "Punt de Lectura Sant Pere i Sant Pau",
+"adreca": ""
+},
+{
+"id": "3f25d0172af581cb8268d5a7a82c9fdf",
+"nom": "Reial Societat Arqueològica Tarraconense",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58134ba80cd68ad6993e8",
+"nom": "Restaurant La Jartá",
+"adreca": "Pg. Marítim Rafael Casanova"
+},
+{
+"id": "3e85d0172af5819ba740d428d1cd3f89",
+"nom": "Restaurant Selvático",
+"adreca": "Port Esportiu"
+},
+{
+"id": "3e85d0172af581e7b649f41a9c056544",
+"nom": "Restaurante Latino - Son's Cubanos",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58188bca8ecae885be34f",
+"nom": "Roxane Dutheil taller d'art - Tarragonarte",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581229841f2468ad2824b",
+"nom": "Sala El Cau",
+"adreca": "C/ del Trinquet Vell, 2"
+},
+{
+"id": "3e85d0172af58183bc68c7e3a7db8b60",
+"nom": "Sala Fixa-t'hi",
+"adreca": "C/ Pau del Protectorat, 1"
+},
+{
+"id": "3e85d0172af5819dad32e1554a6fae16",
+"nom": "Sala Premium",
+"adreca": "C/ dels Rebolledo, 11"
+},
+{
+"id": "3e85d0172af581739774dc4a39bedb65",
+"nom": "Sala Trono Armanyà",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5819d940efb2567c2cc79",
+"nom": "Sala Zero",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581cc9f90e4509bbda79a",
+"nom": "Saque y Tapas (Pàdel Indoor TGN)",
+"adreca": "Pol. Ind. Francolí, 10"
+},
+{
+"id": "3e85d0172af58185b1b3fb38393b0e57",
+"nom": "Serveis Territorials Generalitat",
+"adreca": "C/ Major, 14"
+},
+{
+"id": "3e85d0172af58188a769df066ec5cde6",
+"nom": "Shiva Music",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5817e9266da8b77cf1007",
+"nom": "Stone Bar",
+"adreca": "Pça. dels Sedassos, 26"
+},
+{
+"id": "3e85d0172af58117a5ecee08ffc036aa",
+"nom": "Tablao Flamenco La Taílla",
+"adreca": "Pol. Ind. Francolí, parcel·la 22, nau 9"
+},
+{
+"id": "3e85d0172af5818e833dcc81cf941575",
+"nom": "Tablao La Herrería",
+"adreca": "C/ de Reding, 14"
+},
+{
+"id": "3e85d0172af581afb792f2ce563193dc",
+"nom": "Taller d'Art estudi",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58135abc3c3b50b9bb9f7",
+"nom": "Taller D'Arts Escèniques",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581c1827adfe5793f30db",
+"nom": "Taller Fotogràfic de Tarragona",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5819d9c80eb02e5c0888a",
+"nom": "Tardes Clandestines",
+"adreca": ""
+},
+{
+"id": "3e85d0172af5811e8992fe8594d44903",
+"nom": "Tarraco Arena",
+"adreca": "C/ de Mallorca, 18"
+},
+{
+"id": "3e85d0172af581d296e4d30a537fb693",
+"nom": "Tarragona Hostel",
+"adreca": "C/ Unió, 26"
+},
+{
+"id": "3e85d0172af5817ca56adc8ff4ca6afd",
+"nom": "Teatre El Magatzem Nova Trono",
+"adreca": "C/ de Reding, 14"
+},
+{
+"id": "3e85d0172af581e7adc2d4ade0b54a90",
+"nom": "Teatre Tarragona",
+"adreca": "Rambla Nova, 11"
+},
+{
+"id": "3e85d0172af5817c8bb3ed20bd270ffb",
+"nom": "Teatret del Serrallo",
+"adreca": "Moll de Pescadors"
+},
+{
+"id": "3e85d0172af58125a58becaa5926e386",
+"nom": "The School House Brunch & Gastropub",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581f0b92ec22e83199c28",
+"nom": "Tito Figveras",
+"adreca": ""
+},
+{
+"id": "3e85d0172af581f8b9e3f7fc4f667687",
+"nom": "Totem Café",
+"adreca": ""
+},
+{
+"id": "3e85d0172af58194be8bd6eeff3c87da",
+"nom": "Twins Cerveseria",
+"adreca": "C/ Méndez Núñez, 21"
+},
+{
+"id": "3f25d0172af581338f60e9d1a4e558f4",
+"nom": "Vil·la romana dels Munts",
+"adreca": "Altafulla"
+}
+]
