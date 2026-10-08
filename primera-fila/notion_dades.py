@@ -100,26 +100,80 @@ def data_de(d, clau="start"):
 
 
 _CACHE_IMG = {}
+# Mida màxima de les imatges dins del PDF. Les originals (cartells de 3-8 MB) feien
+# un HTML de centenars de MB i el navegador del generador es tancava.
+IMG_MAX_PX = 1100
+IMG_MAX_BYTES_SENSE_REDUIR = 600_000
+
+
+def url_descarrega(url):
+    """Els enllaços de Google Drive (/file/d/ID/view, open?id=ID) porten a la pàgina del
+    visor (HTML), no a la imatge. Els convertim a la descàrrega directa del fitxer."""
+    m = re.search(r"drive\.google\.com/(?:file/d/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})", url or "")
+    if m:
+        return f"https://drive.usercontent.google.com/download?id={m.group(1)}&export=view"
+    # Ajuntament de Tarragona: ".../imatge" és l'original (10-20 MB, el servidor talla la
+    # descàrrega). Plone en serveix una versió de 768 px a ".../@@images/imatge/large".
+    m = re.match(r"(https?://(?:www\.)?tarragona\.cat/.+?)/imatge/?$", url or "")
+    if m:
+        return f"{m.group(1)}/@@images/imatge/large"
+    return url
+
+
+def _redueix(contingut, tipus):
+    """Torna (bytes, tipus) reduïts: màxim IMG_MAX_PX de costat, JPEG qualitat 82
+    (PNG si té transparència). Si no es pot obrir, torna l'original (si no és enorme)."""
+    try:
+        from io import BytesIO
+        from PIL import Image, ImageOps
+        im = Image.open(BytesIO(contingut))
+        im = ImageOps.exif_transpose(im)
+        im.thumbnail((IMG_MAX_PX, IMG_MAX_PX))
+        transparent = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
+        out = BytesIO()
+        if transparent:
+            im.save(out, "PNG", optimize=True)
+            return out.getvalue(), "image/png"
+        im.convert("RGB").save(out, "JPEG", quality=82, optimize=True, progressive=True)
+        return out.getvalue(), "image/jpeg"
+    except Exception as e:  # noqa: BLE001
+        # Només deixem passar l'original si de debò és una imatge (p. ex. SVG); mai una pàgina HTML
+        if tipus.startswith("image/") and len(contingut) <= IMG_MAX_BYTES_SENSE_REDUIR:
+            return contingut, tipus
+        print(f"  -> Avís: no és una imatge o no s'ha pogut reduir ({e}); no es posa")
+        return None, None
 
 
 def imatge_data_uri(url):
-    """Descarrega una imatge i la torna com a data: URI (les URL de Notion caduquen)."""
+    """Descarrega una imatge, la redueix i la torna com a data: URI (les URL de Notion caduquen)."""
     if not url:
         return None
     if url in _CACHE_IMG:
         return _CACHE_IMG[url]
-    try:
-        r = requests.get(url, timeout=40)
-        r.raise_for_status()
-        tipus = r.headers.get("Content-Type", "image/jpeg").split(";")[0]
-        if not tipus.startswith("image/"):
-            tipus = "image/jpeg"
-        uri = f"data:{tipus};base64," + base64.b64encode(r.content).decode()
-    except Exception as e:  # noqa: BLE001
-        print(f"  -> Avís: no he pogut baixar una imatge ({e})")
-        uri = None
+    uri, error = None, None
+    for intent in range(3):   # els servidors a vegades tallen la connexió: tornem-ho a provar
+        try:
+            r = requests.get(url_descarrega(url), timeout=60, headers={"User-Agent": "AgendaTGN-PrimeraFila/1.0"})
+            r.raise_for_status()
+            tipus = r.headers.get("Content-Type", "").split(";")[0] or "application/octet-stream"
+            dades, tipus = _redueix(r.content, tipus)
+            uri = f"data:{tipus};base64," + base64.b64encode(dades).decode() if dades else None
+            break
+        except Exception as e:  # noqa: BLE001
+            error = e
+            time.sleep(2 * (intent + 1))
+    if uri is None and error is not None:
+        print(f"  -> Avís: no he pogut baixar una imatge ({url[:90]}): {error}")
     _CACHE_IMG[url] = uri
     return uri
+
+
+def precarrega_imatges(urls, fils=4):
+    """Descarrega i redueix en paral·lel (abans era una per una i trigava minuts)."""
+    from concurrent.futures import ThreadPoolExecutor
+    pendents = [u for u in dict.fromkeys(u for u in urls if u) if u not in _CACHE_IMG]
+    with ThreadPoolExecutor(max_workers=fils) as ex:
+        list(ex.map(imatge_data_uri, pendents))
 
 
 def preu_text(p):

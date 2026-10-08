@@ -186,7 +186,8 @@ def main():
         lid = rel[0] if rel else None
         if not lid:  # pla B: el text del camp "Lloc"
             text = normalitza(prop(p, "Lloc"))
-            if text:
+            # "Tarragona" sol o "pendent de revisar" no és cap lloc (abans "Tarragona" = Teatre Tarragona)
+            if text and text not in {"tarragona", "tgn"} and "pendent" not in text:
                 cand = difflib.get_close_matches(text, list(per_nom), n=1, cutoff=0.82)
                 if not cand:
                     cand = [k for k in per_nom if k and (k in text or text in k) and len(k) > 3][:1]
