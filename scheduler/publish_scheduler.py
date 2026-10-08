@@ -336,8 +336,8 @@ def _lloc_complet(activity):
 
 CATEGORIA_EMOJI = {
     "Música": "🎵", "Teatre": "🎭", "Exposició": "🖼️", "Cinema": "🎬", "Patrimoni": "🏛️",
-    "Literatura": "📚", "Familiar": "👨‍👩‍👧", "Taller": "🛠️", "Gastronomia": "🍽️", "Mercat": "🛍️",
-    "Conferència": "🎤", "Altres": "📌", "Dansa": "💃", "Art": "🎨", "Festa popular": "🎉",
+    "Literatura": "📚", "Familiar": "🧸", "Taller": "✂️", "Gastronomia": "🍷", "Mercat": "🛍️",
+    "Conferència": "🎤", "Altres": "✨", "Dansa": "💃", "Art": "🎨", "Festa popular": "🎉",
 }
 
 MESOS_CA = ["gener", "febrer", "març", "abril", "maig", "juny", "juliol",
