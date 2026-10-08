@@ -13,7 +13,9 @@ Cada dia (via GitHub Actions cron), aquest script:
          publicat l'avançament) -> es dispara IGUALMENT avui mateix.
    - Publicació "Dia" (el dia de l'esdeveniment):
        - Si avui == Data inici -> es dispara.
-3. Genera el text amb Gemini (variant segons avançament/dia).
+3. Genera subtítol + descripció amb IA i munta el post en format fitxa
+   (NOM | 🎭 Subtítol / descripció / 📅 data, hora / 📍 lloc / 🎟️ preu / ℹ️ entrades),
+   igual a X, Facebook i Threads.
 4. Publica a X (Twitter) i, si el checkbox "Facebook" és cert:
    - a la Pàgina de Facebook (Graph API, amb imatge), i
    - t'envia el mateix post per Telegram per copiar-lo al GRUP de Facebook
@@ -332,40 +334,67 @@ def _lloc_complet(activity):
     return lloc
 
 
-def generate_text(activity, mode, recents=None):
+CATEGORIA_EMOJI = {
+    "Música": "🎵", "Teatre": "🎭", "Exposició": "🖼️", "Cinema": "🎬", "Patrimoni": "🏛️",
+    "Literatura": "📚", "Familiar": "👨‍👩‍👧", "Taller": "🛠️", "Gastronomia": "🍽️", "Mercat": "🛍️",
+    "Conferència": "🎤", "Altres": "📌", "Dansa": "💃", "Art": "🎨", "Festa popular": "🎉",
+}
+
+MESOS_CA = ["gener", "febrer", "març", "abril", "maig", "juny", "juliol",
+            "agost", "setembre", "octubre", "novembre", "desembre"]
+
+
+def data_llarga(d):
+    """9 d'octubre / 12 de novembre."""
+    mes = MESOS_CA[d.month - 1]
+    return f"{d.day} d'{mes}" if mes[0] in "aeiou" else f"{d.day} de {mes}"
+
+
+def _hora_txt(hora):
+    hora = (hora or "").strip()
+    if hora and re.fullmatch(r"\d{1,2}[:.]\d{2}", hora):
+        return f"{hora.replace('.', ':')} h"
+    return hora
+
+
+def generate_text(activity, mode, recents=None, max_desc=160):
     """mode = 'avancament' | 'dia'. El to surt de veu_agendatgn.py i guia_to.md.
-    Torna (text_x, cta) — la CTA s'afegeix a part perquè no es repeteixi."""
+    La IA només escriu el subtítol (2-5 paraules) i 1-2 frases de descripció;
+    títol, data, lloc, preu i entrades els posa el codi (format Tarragona Cultura).
+    Torna (subtitol, descripcio, cta)."""
     import veu_agendatgn as veu
 
     recents = recents or []
     cta = veu.triar_cta(recents)
-    nom, hora, data_text = activity["nom"], activity["hora"], activity.get("data_text", "")
-    lloc = _lloc_complet(activity)
     dades = (
         "Dades de l'activitat (fes servir NOMÉS aquestes):\n"
-        f"- Nom: {nom}\n- Data: {data_text}\n- Hora: {hora}\n- Lloc: {lloc}\n"
-        f"- Preu: {activity.get('preu_text') or ''}\n- Descripció: {activity['descripcio']}\n\n"
+        f"- Nom: {activity['nom']}\n- Categoria: {activity.get('categoria', '')}\n"
+        f"- Data: {activity.get('data_text', '')}\n- Lloc: {_lloc_complet(activity)}\n"
+        f"- Descripció: {activity['descripcio']}\n\n"
     )
-    dades += ("Digues sempre el preu. Si és «Gratuït», digues que és gratis o d'entrada lliure, amb naturalitat.\n"
-              if activity.get("preu_text") else "")
-    if mode == "avancament":
-        instruccio = dades + (
-            f"Escriu un post per a X que avanci aquesta activitat. Digues la data tal qual («el {data_text}»), "
-            "sense comptes enrere. Inclou hora i lloc si hi són. No hi posis cap crida a l'acció ni enllaç."
-        )
-    else:
-        instruccio = dades + (
-            "Escriu un post per a X per dir que és AVUI. Inclou hora i lloc si hi són. "
-            "No hi posis cap crida a l'acció ni enllaç."
-        )
-    marge = 270 - (len(cta) + 2 if cta else 0) - (len(LINIA_ENTRADES) + 23 + 2 if activity.get("entrades") else 0)
-    resultat = veu.escriure(instruccio, marge, GROQ_API_KEY, textos_recents=recents)
-    if not resultat:
-        # Xarxa de seguretat: text simple a partir de les dades
-        detall = " · ".join(x for x in [hora, lloc] if x)
-        resultat = (f"El {data_text}: {nom}." if mode == "avancament" else f"Avui: {nom}.") + \
-            (f"\n{detall}" if detall else "")
-    return resultat, cta
+    instruccio = dades + (
+        "Escriu DUES coses, separades per una línia que només digui ---\n"
+        "1) Un subtítol de 2 a 5 paraules que digui quin tipus d'activitat és "
+        "(ex.: «Flamenc, circ i teatre», «Concert de jazz», «Mercat d'artesania»). Sense emojis ni punt final.\n"
+        "2) Una o dues frases curtes que expliquin què és, de manera informativa i concreta "
+        "(ex.: «Un espectacle familiar que combina flamenc, circ i teatre amb humor, malabars i música.»). "
+        "NO hi posis data, hora, lloc, preu, enllaços, emojis ni crides a l'acció: això ja surt a sota."
+        + (" És avui: pots començar per «Avui» si queda natural." if mode == "dia" else "")
+    )
+    resultat = veu.escriure(instruccio, max_desc + 50, GROQ_API_KEY, textos_recents=recents)
+    subtitol, desc = "", ""
+    if resultat and "---" in resultat:
+        subtitol, desc = [x.strip() for x in resultat.split("---", 1)]
+        subtitol = subtitol.splitlines()[0].strip(" .«»\"") if subtitol else ""
+        if len(subtitol) > 45:
+            subtitol = ""
+        if len(desc) > max_desc:
+            desc = desc[:max_desc].rsplit(". ", 1)[0].rstrip(".") + "."
+    elif resultat and len(resultat) <= max_desc:
+        desc = resultat
+    if not subtitol:
+        subtitol = activity.get("categoria", "")
+    return subtitol, desc, cta
 
 
 # ---------------------------------------------------------------------------
@@ -403,8 +432,15 @@ LINIA_ENTRADES = "Entrades: "
 
 
 def _x_len(text):
-    """Llargada tal com la compta X: cada URL compta 23 caràcters."""
-    return len(re.sub(r"https?://\S+", "x" * 23, text))
+    """Llargada tal com la compta X: cada URL compta 23 i els emojis 2."""
+    text = re.sub(r"https?://\S+", "x" * 23, text)
+    n = 0
+    for ch in text:
+        o = ord(ch)
+        if o in (0x200D, 0xFE0F):
+            continue
+        n += 2 if o > 0x2000 and not (0x2010 <= o <= 0x206F) else 1
+    return n
 
 
 def _preu_al_text(text, preu):
@@ -420,35 +456,55 @@ def _linia_preu(preu):
     return preu if preu.lower().startswith(("gratu", "preu", "entrada", "aportació", "des de")) else f"Preu: {preu}"
 
 
-def text_x_final(text, activity, cta=None):
-    """Post de X: text + preu (si la IA no l'ha dit) + enllaç d'entrades + CTA si hi cap."""
-    out = text
+def bloc_dades(activity, mode):
+    """Línies pràctiques amb emoji, com Tarragona Cultura."""
+    linies = []
+    quan = "Avui" if mode == "dia" else activity.get("data_llarga", "")
+    hora = _hora_txt(activity.get("hora"))
+    linies.append("📅 " + ", ".join(x for x in [quan, hora] if x))
+    lloc = _lloc_complet(activity)
+    if lloc:
+        linies.append(f"📍 {lloc}")
     preu = activity.get("preu_text", "")
-    if preu and not _preu_al_text(out, preu) and _x_len(out) + len(_linia_preu(preu)) + 1 <= 280:
-        out += f"\n{_linia_preu(preu)}"
-    if activity.get("entrades") and _x_len(out) + len(LINIA_ENTRADES) + 23 + 2 <= 280:
-        out += f"\n\n{LINIA_ENTRADES}{activity['entrades']}"
-    if cta and _x_len(out) + len(cta) + 2 <= 280:
-        out += f"\n\n{cta}"
-    return out
+    if preu:
+        linies.append(f"🎟️ {preu}")
+    return "\n".join(linies)
 
 
-def facebook_text(text, activity, cta=None):
-    """Text + una línia pràctica (data · hora · lloc · preu, sense emojis) +
-    enllaç d'entrades si n'hi ha + CTA opcional. El preu hi surt sempre."""
-    parts = [activity.get("data_text", "").capitalize(), activity.get("hora", ""),
-             _lloc_complet(activity), activity.get("preu_text", "")]
-    detall = " · ".join(p for p in parts if p)
-    out = text
-    ja_hi_es = all((x or "").lower() in text.lower() for x in [activity.get("hora"), _lloc_complet(activity)])
-    if detall and not ja_hi_es:
-        out += f"\n\n{detall}"
-    elif not _preu_al_text(text, activity.get("preu_text", "")):
-        out += f"\n\n{_linia_preu(activity['preu_text'])}"
-    if activity.get("entrades"):
-        out += f"\n\n{LINIA_ENTRADES}{activity['entrades']}"
-    if cta:
-        out += f"\n\n{cta}"
+def capcalera(activity, subtitol):
+    nom = (activity.get("nom") or "").strip()
+    titol = nom.upper() if len(nom) <= 45 else nom
+    if not subtitol:
+        return titol
+    emoji = CATEGORIA_EMOJI.get(activity.get("categoria", ""), "")
+    return f"{titol} | {emoji + ' ' if emoji else ''}{subtitol}"
+
+
+def compon_post(activity, subtitol, desc, cta, mode, limit=None, mida=len):
+    """Post final, igual per a X, Facebook i Threads:
+       NOM | 🎭 Subtítol
+       (línia en blanc) descripció
+       (línia en blanc) 📅 data, hora / 📍 lloc / 🎟️ preu
+       (línia en blanc) ℹ️ enllaç d'entrades
+       (línia en blanc) CTA
+    Si hi ha límit (X), es retallen per ordre: CTA, descripció, subtítol."""
+    def munta(sub, d, c):
+        parts = [capcalera(activity, sub)]
+        if d:
+            parts.append(d)
+        parts.append(bloc_dades(activity, mode))
+        if activity.get("entrades"):
+            parts.append(f"ℹ️ {LINIA_ENTRADES}{activity['entrades']}")
+        if c:
+            parts.append(c)
+        return "\n\n".join(parts)
+
+    primera = re.split(r"(?<=[.!?])\s", desc or "", maxsplit=1)[0] if desc else None
+    for sub, d, c in [(subtitol, desc, cta), (subtitol, desc, None), (subtitol, primera, None),
+                      (subtitol, None, None), (None, None, None)]:
+        out = munta(sub, d, c)
+        if limit is None or mida(out) <= limit:
+            return out
     return out
 
 
@@ -503,20 +559,20 @@ def send_to_telegram_for_group(text, image_bytes=None):
         print(f"  -> Avís: no s'ha pogut enviar a Telegram ({e}).")
 
 
-def publish_everywhere(text, cta, image_bytes, activity, vol_facebook, clau):
+def publish_everywhere(subtitol, desc, cta, image_bytes, activity, mode, vol_facebook, clau):
     import veu_agendatgn as veu
-    text_x = text_x_final(text, activity, cta)
+    text_x = compon_post(activity, subtitol, desc, cta, mode, limit=280, mida=_x_len)
+    text_llarg = compon_post(activity, subtitol, desc, cta, mode)
     post_to_twitter(text_x, image_bytes=image_bytes)
     try:
         import threads_pub
         if threads_pub.configurat():
-            threads_pub.publicar_post(facebook_text(text, activity, cta)[:threads_pub.LIMIT])
+            threads_pub.publicar_post(compon_post(activity, subtitol, desc, cta, mode, limit=threads_pub.LIMIT))
     except Exception as e:  # noqa: BLE001  (Threads mai ha de trencar X/Facebook)
         print(f"  -> Avís Threads: {e}")
     if vol_facebook:
-        fb = facebook_text(text, activity, cta)
-        post_to_facebook(fb, image_bytes=image_bytes)
-        send_to_telegram_for_group(fb, image_bytes=image_bytes)
+        post_to_facebook(text_llarg, image_bytes=image_bytes)
+        send_to_telegram_for_group(text_llarg, image_bytes=image_bytes)
     veu.registrar_post(text_x, "Post individual", date.today().isoformat(), clau)
 
 
@@ -556,6 +612,7 @@ def process_activity(page):
         "descripcio": get_prop_text(props, "Descripció") or "",
         "preu": get_prop_text(props, "Preu"),
         "data_text": data_text,
+        "data_llarga": data_llarga(data_inici),
         "preu_text": get_prop_text(props, "Preu (text)") or _preu_llegible(get_prop_text(props, "Preu")),
     }
     rel_lloc = [x["id"] for x in (props.get("Lloc (fitxa)") or {}).get("relation", [])]
@@ -564,6 +621,7 @@ def process_activity(page):
         preu_text=get_prop_text(props, "Preu (text)") or "", preu_num=get_prop_text(props, "Preu"),
         lloc_text=activity["lloc"], lloc_ids=rel_lloc, llocs=LLOCS_ENTRADES)
     categoria = get_prop_text(props, "Categoria") or ""
+    activity["categoria"] = categoria
 
     publicat_avancament = get_prop_text(props, "Publicat Avançament")
     publicat_dia = get_prop_text(props, "Publicat Dia")
@@ -582,17 +640,19 @@ def process_activity(page):
     # sempre que encara no sigui el mateix dia de l'esdeveniment.
     if cal_avancament:
         print(f"[{nom}] Generant publicació d'avançament...")
-        text, cta = generate_text(activity, "avancament", RECENTS)
-        publish_everywhere(text, cta, image_bytes, activity, vol_facebook, f"post-{page_id}-avancament")
-        RECENTS.insert(0, text)
+        subtitol, desc, cta = generate_text(activity, "avancament", RECENTS)
+        publish_everywhere(subtitol, desc, cta, image_bytes, activity, "avancament", vol_facebook,
+                           f"post-{page_id}-avancament")
+        RECENTS.insert(0, desc or subtitol)
         mark_published(page_id, "Publicat Avançament")
 
     # --- Publicació "Dia" ---
     if cal_dia:
         print(f"[{nom}] Generant publicació del dia...")
-        text, cta = generate_text(activity, "dia", RECENTS)
-        publish_everywhere(text, cta, image_bytes, activity, vol_facebook, f"post-{page_id}-dia")
-        RECENTS.insert(0, text)
+        subtitol, desc, cta = generate_text(activity, "dia", RECENTS)
+        publish_everywhere(subtitol, desc, cta, image_bytes, activity, "dia", vol_facebook,
+                           f"post-{page_id}-dia")
+        RECENTS.insert(0, desc or subtitol)
         mark_published(page_id, "Publicat Dia")
 
 
