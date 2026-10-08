@@ -192,7 +192,14 @@ def url_descarrega(url):
     """Els enllaços de Google Drive (/file/d/ID/view, open?id=ID) porten a la pàgina del
     visor (HTML), no a la imatge. Els convertim a la descàrrega directa del fitxer."""
     m = re.search(r"drive\.google\.com/(?:file/d/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})", url or "")
-    return f"https://drive.usercontent.google.com/download?id={m.group(1)}&export=view" if m else url
+    if m:
+        return f"https://drive.usercontent.google.com/download?id={m.group(1)}&export=view"
+    # Ajuntament de Tarragona: ".../imatge" és l'original (10-20 MB, el servidor talla la
+    # descàrrega). Plone en serveix una versió de 768 px a ".../@@images/imatge/large".
+    m = re.match(r"(https?://(?:www\.)?tarragona\.cat/.+?)/imatge/?$", url or "")
+    if m:
+        return f"{m.group(1)}/@@images/imatge/large"
+    return url
 
 
 def get_notion_image_url(props):
