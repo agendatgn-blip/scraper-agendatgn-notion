@@ -106,6 +106,13 @@ IMG_MAX_PX = 1100
 IMG_MAX_BYTES_SENSE_REDUIR = 600_000
 
 
+def url_descarrega(url):
+    """Els enllaços de Google Drive (/file/d/ID/view, open?id=ID) porten a la pàgina del
+    visor (HTML), no a la imatge. Els convertim a la descàrrega directa del fitxer."""
+    m = re.search(r"drive\.google\.com/(?:file/d/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})", url or "")
+    return f"https://drive.usercontent.google.com/download?id={m.group(1)}&export=view" if m else url
+
+
 def _redueix(contingut, tipus):
     """Torna (bytes, tipus) reduïts: màxim IMG_MAX_PX de costat, JPEG qualitat 82
     (PNG si té transparència). Si no es pot obrir, torna l'original (si no és enorme)."""
@@ -123,9 +130,10 @@ def _redueix(contingut, tipus):
         im.convert("RGB").save(out, "JPEG", quality=82, optimize=True, progressive=True)
         return out.getvalue(), "image/jpeg"
     except Exception as e:  # noqa: BLE001
-        if len(contingut) <= IMG_MAX_BYTES_SENSE_REDUIR:
+        # Només deixem passar l'original si de debò és una imatge (p. ex. SVG); mai una pàgina HTML
+        if tipus.startswith("image/") and len(contingut) <= IMG_MAX_BYTES_SENSE_REDUIR:
             return contingut, tipus
-        print(f"  -> Avís: imatge massa gran i no s'ha pogut reduir ({e}); no es posa")
+        print(f"  -> Avís: no és una imatge o no s'ha pogut reduir ({e}); no es posa")
         return None, None
 
 
@@ -136,11 +144,9 @@ def imatge_data_uri(url):
     if url in _CACHE_IMG:
         return _CACHE_IMG[url]
     try:
-        r = requests.get(url, timeout=40, headers={"User-Agent": "AgendaTGN-PrimeraFila/1.0"})
+        r = requests.get(url_descarrega(url), timeout=40, headers={"User-Agent": "AgendaTGN-PrimeraFila/1.0"})
         r.raise_for_status()
-        tipus = r.headers.get("Content-Type", "image/jpeg").split(";")[0]
-        if not tipus.startswith("image/"):
-            tipus = "image/jpeg"
+        tipus = r.headers.get("Content-Type", "").split(";")[0] or "application/octet-stream"
         dades, tipus = _redueix(r.content, tipus)
         uri = f"data:{tipus};base64," + base64.b64encode(dades).decode() if dades else None
     except Exception as e:  # noqa: BLE001
