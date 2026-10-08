@@ -77,7 +77,9 @@ def muntar(ed, mapa_dades, mapa_dir):
     nums = (mapa_dades or {}).get("activitat_num", {})
     pagines = []
 
-    # Imatges
+    # Imatges (en paral·lel i reduïdes)
+    nd.precarrega_imatges(([ed["portada"][0]] if ed["portada"] else []) +
+                          [a["imatges"][0] for a in ed["activitats"] if a["imatges"]])
     ed["portada_uri"] = nd.imatge_data_uri(ed["portada"][0]) if ed["portada"] else None
     for a in ed["activitats"]:
         a["img"] = nd.imatge_data_uri(a["imatges"][0]) if a["imatges"] else None
@@ -209,10 +211,14 @@ def muntar(ed, mapa_dades, mapa_dir):
 
 def a_pdf(html, sortida_pdf):
     from playwright.sync_api import sync_playwright
+    # L'HTML va a un fitxer i el navegador l'obre (amb set_content, un HTML gran el feia petar)
+    html_path = Path(sortida_pdf).with_suffix(".html")
+    html_path.write_text(html, encoding="utf-8")
+    print(f"HTML: {len(html) / 1_000_000:.1f} MB")
     with sync_playwright() as p:
-        nav = p.chromium.launch()
+        nav = p.chromium.launch(args=["--disable-dev-shm-usage"])
         pg = nav.new_page()
-        pg.set_content(html, wait_until="networkidle", timeout=120_000)
+        pg.goto(html_path.resolve().as_uri(), wait_until="networkidle", timeout=180_000)
         pg.evaluate("document.fonts.ready")
         pg.wait_for_timeout(1500)
         pg.pdf(path=str(sortida_pdf), format="A4", print_background=True, prefer_css_page_size=True)
