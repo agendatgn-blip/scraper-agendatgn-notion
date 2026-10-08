@@ -187,12 +187,25 @@ def minuts(h):
 
 
 def linia(a):
-    """Format de la guia: 20 h · Acte · Espai (Municipi, si no és Tarragona) · Preu."""
+    """Format fitxa (com els posts individuals), dues línies per activitat:
+       🎭 Nom de l'acte
+       18 h · Espai (Municipi, si no és Tarragona) · Preu"""
     lloc = a["lloc"]
     mun = a.get("municipi", "").strip()
     if mun and "tarragona" not in mun.lower() and mun.lower() not in lloc.lower():
         lloc = f"{lloc} ({mun})" if lloc else mun
-    return " · ".join(x for x in [hora_curta(a["hora"]), a["nom"], lloc, a.get("preu", "")] if x)
+    detall = " · ".join(x for x in [hora_curta(a["hora"]), lloc, a.get("preu", "")] if x)
+    return f"{EMOJI.get(a['cat'], '✨')} {a['nom']}" + (f"\n{detall}" if detall else "")
+
+
+def rang_dates(ini, fi):
+    """9-12 d'octubre / 30 d'octubre - 2 de novembre."""
+    def de(m):
+        mes = MESOS_CA[m - 1]
+        return f"d'{mes}" if mes[0] in "aeiou" else f"de {mes}"
+    if ini.month == fi.month:
+        return f"{ini.day}-{fi.day} {de(fi.month)}"
+    return f"{ini.day} {de(ini.month)} - {fi.day} {de(fi.month)}"
 
 
 def nom_dia(d):
@@ -288,7 +301,7 @@ def resum_destacats(ini, fi, tipus, prev, forcar):
     while d <= fi:
         del_dia = [a for a in acts if a["dia"] == d]
         if del_dia:
-            blocs.append((nom_dia(d).upper(), [linia(a) for a in del_dia]))
+            blocs.append(("📅 " + nom_dia(d).upper(), [linia(a) for a in del_dia]))
         d += timedelta(days=1)
 
     periode = "aquesta setmana" if setmana else "aquest cap de setmana"
@@ -296,13 +309,17 @@ def resum_destacats(ini, fi, tipus, prev, forcar):
     resum_plans = "; ".join(f"{a['nom']} ({nom_dia(a['dia']) if a['dia'] else ''})" for a in acts[:8])
     context = (f"Presentem els plans destacats de {periode} a Tarragona "
                f"(de {nom_dia(ini)} a {nom_dia(fi)} de {MESOS_CA[fi.month - 1]}): {resum_plans}.")
-    intro = veu.escriure(context + f" Escriu NOMÉS la frase d'entrada (una o dues frases curtes) per presentar "
-                         f"els destacats de {periode}; la llista d'activitats ja va a sota. Sense crida a l'acció.",
+    intro = veu.escriure(context + f" Escriu NOMÉS una frase d'entrada curta i informativa per presentar "
+                         f"els destacats de {periode}; el títol i la llista d'activitats ja hi són. "
+                         "Sense emojis, enllaços ni crida a l'acció.",
                          120, GROQ_API_KEY, textos_recents=recents) \
         or random.choice(["Els destacats d'aquesta setmana:", "Això és el que destaquem aquesta setmana:",
                           "Setmana amb coses. Els destacats:"] if setmana else
                          ["Cap de setmana a Tarragona. El que destaquem:", "Si aquest cap de setmana vols sortir, tens això:",
                           "Destacats del cap de setmana:"])
+    capcalera = (f"DESTACATS DE LA SETMANA | {rang_dates(ini, fi)}" if setmana
+                 else f"DESTACATS DEL CAP DE SETMANA | {rang_dates(ini, fi)}")
+    intro = f"{capcalera}\n\n{intro}"
     cta = veu.triar_cta(recents)
 
     def amb_cta(parts, limit, mesura):
