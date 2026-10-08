@@ -313,6 +313,19 @@ def llegeix_fitxa(url):
     }
 
 
+def enllac_entrades_fitxa(fitxa):
+    """Enllaç de compra/inscripció de la fitxa: el del bloc 'Venda d'entrades /
+    Inscripcions' i, si no n'hi ha, un de la descripció que sigui d'una plataforma de venda."""
+    for u in fitxa.get("entrades_links") or []:
+        if u.startswith("http"):
+            return u
+    import imatges
+    for text, u in fitxa.get("enllacos_desc") or []:
+        if imatges._DOMINIS_ENTRADES.search(u) or imatges._TEXT_ENTRADES.search(text or ""):
+            return u
+    return None
+
+
 # ----------------------------------------------------------------------------
 # 3. Utilitats de dates i dedup
 # ----------------------------------------------------------------------------
@@ -438,6 +451,9 @@ def processa_ajuntament(mode_test):
                 dades["imatge"] = fitxa["imatge"]
                 dades["confianca_ia"] = "Alta"
                 dades["programa"] = fitxa["programacio"] or info.get("cicle") or ""
+                entrades_url = enllac_entrades_fitxa(fitxa)
+                if entrades_url:
+                    dades["url_entrades"] = entrades_url
                 if fitxa["entrades_links"] or fitxa["entrades_text"]:
                     extres.append("Entrades/Inscripcions: " + " ".join(
                         [fitxa["entrades_text"]] + fitxa["entrades_links"]).strip())

@@ -1,7 +1,7 @@
-name: Re-omplir imatges (scraper)
+name: Re-omplir imatges i entrades (scraper)
 
-# Busca la imatge de les entrades del scraper que no en tenen.
-# Manual: Actions → "Re-omplir imatges (scraper)" → Run workflow.
+# Busca la imatge i l'enllaç d'entrades de les entrades del scraper que no en tenen.
+# Manual: Actions → "Re-omplir imatges i entrades (scraper)" → Run workflow.
 # També s'executa sol cada dilluns, per si alguna web ha penjat el cartell més tard.
 on:
   schedule:

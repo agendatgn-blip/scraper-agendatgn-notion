@@ -125,3 +125,59 @@ def imatge_de_pagina(url, html=None, max_proves=4):
         if es_imatge_valida(cand):
             return cand
     return None
+
+
+# ----------------------------------------------------------------------------
+# Enllaç d'entrades / inscripcions
+# ----------------------------------------------------------------------------
+# Plataformes de venda conegudes: si n'hi ha un enllaç, és gairebé segur el bo
+_DOMINIS_ENTRADES = re.compile(
+    r"entradium|eventbrite|ticketmaster|janto|koobin|ticketea|atrapalo|codetickets|"
+    r"giglon|wegow|dice\.fm|seetickets|tiquetsbcn|enterticket|entradas\.com|"
+    r"compralaentrada|taquilla|ticketing|tickets?\.|entrades\.|reserves?\.|"
+    r"proticketing|ataquilla|oneboxtds|fever|clicketing",
+    re.I,
+)
+_TEXT_ENTRADES = re.compile(
+    r"entrad|ticket|tiquet|compra|comprar|venda|reserv|inscri|taquilla|butaca",
+    re.I,
+)
+_HREF_NO = re.compile(r"^(mailto:|tel:|javascript:|#)|facebook\.com/sharer|twitter\.com/share|"
+                      r"api\.whatsapp|wa\.me/|/login|/cistella|/cart", re.I)
+
+
+def enllac_entrades(html, url):
+    """Torna l'enllaç per comprar entrades / inscriure's que surt a la pàgina, o None.
+    Prioritza plataformes de venda conegudes; si no, un enllaç amb text tipus 'Entrades'."""
+    if not html:
+        return None
+    soup = BeautifulSoup(html, "html.parser")
+    cos = soup.find("article") or soup.find("main") or soup.find(id="content") or soup.body
+    if not cos:
+        return None
+    for tag in cos(["header", "footer", "nav"]):
+        tag.decompose()
+    per_domini, per_text = None, None
+    for a in cos.find_all("a", href=True):
+        href = a["href"].strip()
+        if _HREF_NO.search(href):
+            continue
+        absolut = urljoin(url, href)
+        if absolut.split("#")[0] == url.split("#")[0]:
+            continue
+        text = " ".join([a.get_text(" ", strip=True), a.get("title") or "", a.get("aria-label") or ""])
+        if not per_domini and _DOMINIS_ENTRADES.search(absolut):
+            per_domini = absolut
+        if not per_text and _TEXT_ENTRADES.search(text):
+            per_text = absolut
+    return per_domini or per_text
+
+
+def analitza_pagina(url):
+    """Una sola descàrrega: torna (imatge, enllaç d'entrades) de la pàgina de l'activitat."""
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException:
+        return None, None
+    return imatge_de_pagina(url, html=r.text), enllac_entrades(r.text, url)

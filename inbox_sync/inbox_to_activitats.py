@@ -35,6 +35,9 @@ from datetime import datetime
 
 import requests
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import entrades_llocs  # noqa: E402  (enllaços d'entrades per lloc, a l'arrel del repo)
+
 # ---------------------------------------------------------------------------
 # Configuració
 # ---------------------------------------------------------------------------
@@ -209,7 +212,7 @@ def parse_preu(preu_text):
     return None
 
 
-def build_activitat_properties(inbox_props, programes_index=None):
+def build_activitat_properties(inbox_props, programes_index=None, llocs_entrades=None):
     titol = (
         get_prop_text(inbox_props, "Títol detectat")
         or get_prop_text(inbox_props, "Nom provisional")
@@ -247,6 +250,9 @@ def build_activitat_properties(inbox_props, programes_index=None):
 
     preu_text = get_prop_text(inbox_props, "Preu detectat")
     preu_num = parse_preu(preu_text)
+    sense_preu = not preu_text or "pendent" in preu_text.lower()
+    if preu_num is None and sense_preu:
+        preu_num = 0   # criteri AgendaTGN: si no consta preu, és gratuït (es pot corregir a mà)
     if preu_num is not None:
         properties["Preu"] = {"number": preu_num}
     if preu_text and "pendent" not in preu_text.lower():
@@ -261,6 +267,17 @@ def build_activitat_properties(inbox_props, programes_index=None):
     descripcio = get_prop_text(inbox_props, "Resum web")
     if descripcio:
         properties["Descripció"] = {"rich_text": [{"text": {"content": descripcio[:2000]}}]}
+
+    # Enllaç d'entrades: el propi; si és de pagament i no en té, el del lloc
+    # (📍 LLOCS → URL entrades) o, si ve de l'agenda de l'Ajuntament, el general de l'Ajuntament.
+    entrades_url = entrades_llocs.resol(
+        url_propi=get_prop_text(inbox_props, "URL entrades") or "",
+        preu_text=preu_text or "", preu_num=preu_num,
+        lloc_text=get_prop_text(inbox_props, "Lloc detectat") or "",
+        de_ajuntament=get_prop_text(inbox_props, "Font") == "Agenda Ajuntament Tarragona",
+        llocs=llocs_entrades)
+    if entrades_url:
+        properties["URL reserva"] = {"url": entrades_url}
 
     imatge_url = get_prop_text(inbox_props, "URL Drive imatge")
     if imatge_url:
@@ -314,11 +331,14 @@ def main():
         programes_index = None
         print(f"AVÍS: no s'han pogut llegir els 🎪 Programes ({e}). Es continua sense enllaçar-los.")
 
+    llocs_entrades = entrades_llocs.carrega(NOTION_TOKEN)
+    print(f"Llocs amb enllaç d'entrades: {len(llocs_entrades)}")
+
     for entry in entries:
         props = entry["properties"]
         titol = get_prop_text(props, "Títol detectat") or get_prop_text(props, "Nom provisional") or "(sense títol)"
         try:
-            activitat_props = build_activitat_properties(props, programes_index)
+            activitat_props = build_activitat_properties(props, programes_index, llocs_entrades)
             nova_activitat = create_activitat(activitat_props)
             mark_inbox_converted(entry["id"], nova_activitat["id"])
             print(f"  -> Convertida: «{titol}»")

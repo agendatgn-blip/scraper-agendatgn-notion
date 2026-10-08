@@ -9,6 +9,10 @@ from datetime import date
 
 import requests
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import entrades_llocs  # noqa: E402  (enllaços d'entrades per lloc, a l'arrel del repo)
+
 API = "https://api.notion.com/v1"
 DS_EDICIONS = "8f487a83-0a99-4385-80c6-a1da86a17d8a"
 DS_ACTIVITATS = "3705d017-2af5-8001-a94f-000b2226712d"
@@ -182,7 +186,7 @@ def preu_text(p):
         return t
     n = P(p, "Preu")
     if n is None:
-        return ""
+        return "Gratuït"   # criteri AgendaTGN: si no consta preu, és gratuït
     try:
         return "Gratuït" if float(n) == 0 else f"{float(n):g} €"
     except (TypeError, ValueError):
@@ -240,6 +244,8 @@ def carregar_edicio(n, edicio_id=None, estat="Maquetant"):
     llocs = {p["id"]: p for p in n.query(DS_LLOCS)}
     dades["llocs_tots"] = llocs
 
+    llocs_entrades = entrades_llocs.des_de_pagines(llocs.values(), lambda p, nom: P(p, nom))
+
     # Activitats vinculades a l'edició
     acts = []
     for p in n.query(DS_ACTIVITATS, {"property": "Edició Primera Fila", "relation": {"contains": ed["id"]}}):
@@ -252,7 +258,10 @@ def carregar_edicio(n, edicio_id=None, estat="Maquetant"):
             "cat": P(p, "Etiqueta PDF", "Categoria") or "", "categoria": P(p, "Categoria") or "",
             "preu": preu_text(p), "descripcio": P(p, "Descripció") or "",
             "destacada": bool(P(p, "Destacada")), "festa": P(p, "Festa / barri") or "",
-            "imatges": P(p, "Imatge") or [], "reserva": P(p, "URL reserva") or "",
+            "imatges": P(p, "Imatge") or [],
+            "reserva": entrades_llocs.resol(
+                url_propi=P(p, "URL reserva") or "", preu_text=P(p, "Preu (text)") or "",
+                preu_num=P(p, "Preu"), lloc_text=lloc_nom, lloc_ids=rel, llocs=llocs_entrades),
         })
     dades["activitats"] = acts
 

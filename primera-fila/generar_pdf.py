@@ -139,7 +139,8 @@ def muntar(ed, mapa_dades, mapa_dir):
                 quan = f"Fins al {a['fi'].day} de {T.MESOS[a['fi'].month - 1]}"
             else:
                 quan = ""
-            return {"nom": a["nom"], "lloc": a["lloc"], "quan": quan, "preu": a["preu"], "img": a["img"]}
+            return {"nom": a["nom"], "lloc": a["lloc"], "quan": quan, "preu": a["preu"], "img": a["img"],
+                    "reserva": a.get("reserva", "")}
         nov = [a for a in expos if ed["ini"] and a["dia"] and a["dia"] >= ed["ini"]]
         ult = [a for a in expos if a not in nov and a["fi"] and ed["fi"] and a["fi"] <= ed["fi"] + timedelta(days=7)]
         cur = [a for a in expos if a not in nov and a not in ult]

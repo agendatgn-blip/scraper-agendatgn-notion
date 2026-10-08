@@ -153,8 +153,19 @@ def preparar(pages, llocs, excloure_grans):
             "hora": prop(p, "Hora") or "",
             "municipi": prop(p, "Municipi") or "",
             "dia": date.fromisoformat(d[:10]) if d else None,
+            "preu": preu_curt(prop(p, "Preu (text)"), prop(p, "Preu")),
         })
     return acts
+
+
+def preu_curt(text, num):
+    """Criteri AgendaTGN: si no consta preu, és gratuït."""
+    if text:
+        return text
+    try:
+        return "Gratuït" if not num else f"{float(num):g} €"
+    except (TypeError, ValueError):
+        return "Gratuït"
 
 
 def hora_curta(h):
@@ -176,12 +187,12 @@ def minuts(h):
 
 
 def linia(a):
-    """Format de la guia: 20 h · Acte · Espai (Municipi, si no és Tarragona)."""
+    """Format de la guia: 20 h · Acte · Espai (Municipi, si no és Tarragona) · Preu."""
     lloc = a["lloc"]
     mun = a.get("municipi", "").strip()
     if mun and "tarragona" not in mun.lower() and mun.lower() not in lloc.lower():
         lloc = f"{lloc} ({mun})" if lloc else mun
-    return " · ".join(x for x in [hora_curta(a["hora"]), a["nom"], lloc] if x)
+    return " · ".join(x for x in [hora_curta(a["hora"]), a["nom"], lloc, a.get("preu", "")] if x)
 
 
 def nom_dia(d):
