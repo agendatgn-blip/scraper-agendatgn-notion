@@ -42,6 +42,7 @@ Dependències (requirements.txt):
 """
 
 import os
+import re
 import sys
 import json
 from datetime import datetime, date, timedelta
@@ -187,6 +188,13 @@ def mark_published(page_id, field_name):
 # Imatge: obtenir la de Notion, encaixar-la, o generar la plantilla de marca
 # ---------------------------------------------------------------------------
 
+def url_descarrega(url):
+    """Els enllaços de Google Drive (/file/d/ID/view, open?id=ID) porten a la pàgina del
+    visor (HTML), no a la imatge. Els convertim a la descàrrega directa del fitxer."""
+    m = re.search(r"drive\.google\.com/(?:file/d/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})", url or "")
+    return f"https://drive.usercontent.google.com/download?id={m.group(1)}&export=view" if m else url
+
+
 def get_notion_image_url(props):
     """Retorna la URL del primer fitxer del camp 'Imatge' de Notion, si n'hi ha."""
     prop = props.get("Imatge")
@@ -292,7 +300,7 @@ def get_activity_image_bytes(props, nom, categoria):
     notion_url = get_notion_image_url(props)
     if notion_url:
         try:
-            resp = requests.get(notion_url, timeout=30)
+            resp = requests.get(url_descarrega(notion_url), timeout=30)
             resp.raise_for_status()
             return fit_image_contain(resp.content)
         except Exception as e:  # noqa: BLE001
