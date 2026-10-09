@@ -97,6 +97,7 @@ ASSETS_DIR = os.path.join(
 )
 TEMPLATE_PATH = os.path.join(ASSETS_DIR, "base_template.png")
 FONT_PATH = os.path.join(ASSETS_DIR, "Anton-Regular.ttf")
+LOGO_PATH = os.path.join(ASSETS_DIR, "logo_agendatgn.png")
 CANVAS_SIZE = (1600, 900)
 BRAND_YELLOW = (255, 220, 0)
 
@@ -307,16 +308,87 @@ def generate_template_image(nom, categoria):
     return out.getvalue()
 
 
-def get_activity_image_bytes(props, nom, categoria):
+def compon_imatge(image_bytes, titol="", etiqueta="", data_txt=""):
+    """Disseny "pantalla completa" (1600x900): imatge a sang retallada (prioritza la
+    part de dalt del cartell), degradat fosc a sota, etiqueta groga de categoria,
+    títol en blanc, data en franja groga i logo AgendaTGN a dalt a la dreta."""
+    from PIL import ImageOps
+    W, H = CANVAS_SIZE
+    negre_txt, blanc = (17, 17, 17), (255, 255, 255)
+    img = Image.open(BytesIO(image_bytes)).convert("RGB")
+    c = ImageOps.fit(img, (W, H), Image.LANCZOS, centering=(0.5, 0.3)).convert("RGBA")
+
+    # Degradat negre de baix cap amunt
+    grad = Image.new("L", (1, H))
+    for yy in range(H):
+        t = max(0.0, (yy - H * 0.35) / (H * 0.65))
+        grad.putpixel((0, yy), int(235 * t ** 1.3))
+    fosc = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+    fosc.putalpha(grad.resize((W, H)))
+    c = Image.alpha_composite(c, fosc)
+    d = ImageDraw.Draw(c)
+
+    # Títol: fins a 2 línies, mida adaptativa
+    x0 = 64
+    mida = 120
+    while True:
+        ft = ImageFont.truetype(FONT_PATH, mida)
+        lin = _wrap_text(d, (titol or "").upper(), ft, W - 2 * x0 - 200)
+        if len(lin) <= 2 or mida <= 48:
+            lin = lin[:2]
+            break
+        mida -= 4
+    yb = H - 70 - 66
+    y = yb - 24 - len(lin) * int(mida * 1.08)
+    if etiqueta:
+        fc = ImageFont.truetype(FONT_PATH, 34)
+        tw = d.textlength(etiqueta, font=fc)
+        d.rectangle([x0, y - 74, x0 + tw + 32, y - 22], fill=BRAND_YELLOW)
+        d.text((x0 + 16, y - 48), etiqueta, font=fc, fill=negre_txt, anchor="lm")
+    for l in lin:
+        d.text((x0, y), l, font=ft, fill=blanc)
+        y += int(mida * 1.08)
+    if data_txt:
+        fi = ImageFont.truetype(FONT_PATH, 40)
+        tw = d.textlength(data_txt, font=fi)
+        d.rectangle([x0, yb, x0 + tw + 40, yb + 66], fill=BRAND_YELLOW)
+        d.text((x0 + 20, yb + 33), data_txt, font=fi, fill=negre_txt, anchor="lm")
+
+    if os.path.exists(LOGO_PATH):
+        logo = Image.open(LOGO_PATH).convert("RGBA").resize((140, 140), Image.LANCZOS)
+        c.alpha_composite(logo, (W - 140 - 40, 40))
+
+    out = BytesIO()
+    c.convert("RGB").save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+DIES_CURTS = ["DL", "DT", "DC", "DJ", "DV", "DS", "DG"]
+MESOS_CURTS = ["GEN", "FEB", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OCT", "NOV", "DES"]
+
+
+def etiqueta_data(d, hora=""):
+    """DG 11 OCT · 19:30 H"""
+    txt = f"{DIES_CURTS[d.weekday()]} {d.day} {MESOS_CURTS[d.month - 1]}"
+    h = _hora_txt(hora)
+    return f"{txt} · {h.upper()}" if h else txt
+
+
+def get_activity_image_bytes(props, nom, categoria, data_txt=""):
     """Retorna els bytes de la imatge final a publicar: la pròpia de
-    l'activitat (encaixada sobre fons de marca) si n'hi ha, o la plantilla
-    genèrica generada amb el títol i la categoria si no."""
+    l'activitat (disseny pantalla completa amb títol, data i logo) si n'hi ha,
+    o la plantilla genèrica generada amb el títol i la categoria si no."""
     notion_url = get_notion_image_url(props)
     if notion_url:
         try:
             resp = requests.get(url_descarrega(notion_url), timeout=30)
             resp.raise_for_status()
-            return fit_image_contain(resp.content)
+            etiqueta = CATEGORIA_ETIQUETA.get(categoria, "")
+            try:
+                return compon_imatge(resp.content, nom, etiqueta, data_txt)
+            except Exception as e:  # noqa: BLE001
+                print(f"  -> Avís: error componint la imatge ({e}), s'encaixa sense disseny.")
+                return fit_image_contain(resp.content)
         except Exception as e:  # noqa: BLE001
             print(f"  -> Avís: no s'ha pogut baixar la imatge de Notion ({e}), es fa servir la plantilla genèrica.")
     return generate_template_image(nom, categoria)
@@ -634,7 +706,8 @@ def process_activity(page):
     cal_avancament = not publicat_avancament and avui < data_inici and avui >= data_avancament
     cal_dia = not publicat_dia and avui == data_inici
 
-    image_bytes = get_activity_image_bytes(props, nom, categoria) if (cal_avancament or cal_dia) else None
+    image_bytes = get_activity_image_bytes(
+        props, nom, categoria, etiqueta_data(data_inici, activity["hora"])) if (cal_avancament or cal_dia) else None
 
     # --- Publicació "Avançament" ---
     # Es dispara si avui és exactament la data -5, o si ja hem passat
