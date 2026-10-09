@@ -14,7 +14,7 @@ Cada dia (via GitHub Actions cron), aquest script:
    - Publicació "Dia" (el dia de l'esdeveniment):
        - Si avui == Data inici -> es dispara.
 3. Genera subtítol + descripció amb IA i munta el post en format fitxa
-   (NOM | 🎭 Subtítol / descripció / 📅 data, hora / 📍 lloc / 🎟️ preu / ℹ️ entrades),
+   (CATEGORIA | 📚 Nom / descripció / 📅 data, hora / 📍 lloc),
    igual a X, Facebook i Threads.
 4. Publica a X (Twitter) i, si el checkbox "Facebook" és cert:
    - a la Pàgina de Facebook (Graph API, amb imatge), i
@@ -457,7 +457,7 @@ def _linia_preu(preu):
 
 
 def bloc_dades(activity, mode):
-    """Línies pràctiques amb emoji, com Tarragona Cultura."""
+    """Línies pràctiques amb emoji, com Tarragona Cultura (sense preu)."""
     linies = []
     quan = "Avui" if mode == "dia" else activity.get("data_llarga", "")
     hora = _hora_txt(activity.get("hora"))
@@ -465,44 +465,46 @@ def bloc_dades(activity, mode):
     lloc = _lloc_complet(activity)
     if lloc:
         linies.append(f"📍 {lloc}")
-    preu = activity.get("preu_text", "")
-    if preu:
-        linies.append(f"🎟️ {preu}")
     return "\n".join(linies)
 
 
-def capcalera(activity, subtitol):
+# Etiqueta de secció en majúscules, com Tarragona Cultura ("ACTIVITATS FAMILIARS | ...")
+CATEGORIA_ETIQUETA = {
+    "Música": "MÚSICA", "Teatre": "TEATRE", "Exposició": "EXPOSICIONS", "Cinema": "CINEMA",
+    "Patrimoni": "PATRIMONI", "Literatura": "LITERATURA", "Familiar": "ACTIVITATS FAMILIARS",
+    "Taller": "TALLERS", "Gastronomia": "GASTRONOMIA", "Mercat": "MERCATS",
+    "Conferència": "CONFERÈNCIES", "Dansa": "DANSA", "Art": "ART", "Festa popular": "FESTA POPULAR",
+}
+
+
+def capcalera(activity):
+    """CATEGORIA | 📚 Nom de l'activitat"""
     nom = (activity.get("nom") or "").strip()
-    titol = nom.upper() if len(nom) <= 45 else nom
-    if not subtitol:
-        return titol
-    emoji = CATEGORIA_EMOJI.get(activity.get("categoria", ""), "")
-    return f"{titol} | {emoji + ' ' if emoji else ''}{subtitol}"
+    cat = activity.get("categoria", "")
+    emoji = CATEGORIA_EMOJI.get(cat, "")
+    titol = f"{emoji} {nom}" if emoji else nom
+    etiqueta = CATEGORIA_ETIQUETA.get(cat, "")
+    return f"{etiqueta} | {titol}" if etiqueta else titol
 
 
 def compon_post(activity, subtitol, desc, cta, mode, limit=None, mida=len):
-    """Post final, igual per a X, Facebook i Threads:
-       NOM | 🎭 Subtítol
+    """Post final, igual per a X, Facebook i Threads (format Tarragona Cultura):
+       CATEGORIA | 📚 Nom
        (línia en blanc) descripció
-       (línia en blanc) 📅 data, hora / 📍 lloc / 🎟️ preu
-       (línia en blanc) ℹ️ enllaç d'entrades
-       (línia en blanc) CTA
-    Si hi ha límit (X), es retallen per ordre: CTA, descripció, subtítol."""
-    def munta(sub, d, c):
-        parts = [capcalera(activity, sub)]
+       (línia en blanc) 📅 data, hora / 📍 lloc
+    Sense preu, sense enllaços ni CTA. subtitol i cta es mantenen a la signatura
+    per compatibilitat però ja no es fan servir.
+    Si hi ha límit (X), es retalla la descripció."""
+    def munta(d):
+        parts = [capcalera(activity)]
         if d:
             parts.append(d)
         parts.append(bloc_dades(activity, mode))
-        if activity.get("entrades"):
-            parts.append(f"ℹ️ {LINIA_ENTRADES}{activity['entrades']}")
-        if c:
-            parts.append(c)
         return "\n\n".join(parts)
 
     primera = re.split(r"(?<=[.!?])\s", desc or "", maxsplit=1)[0] if desc else None
-    for sub, d, c in [(subtitol, desc, cta), (subtitol, desc, None), (subtitol, primera, None),
-                      (subtitol, None, None), (None, None, None)]:
-        out = munta(sub, d, c)
+    for d in (desc, primera, None):
+        out = munta(d)
         if limit is None or mida(out) <= limit:
             return out
     return out
