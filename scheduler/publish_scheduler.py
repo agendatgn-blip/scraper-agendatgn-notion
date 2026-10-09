@@ -308,15 +308,39 @@ def generate_template_image(nom, categoria):
     return out.getvalue()
 
 
-def compon_imatge(image_bytes, titol="", etiqueta="", data_txt=""):
-    """Disseny "pantalla completa" (1600x900): imatge a sang retallada (prioritza la
+def fons_generic(color=None):
+    """Fons per a activitats sense imatge: degradat diagonal del color de la
+    categoria cap al negre, amb el logo gegant i molt suau com a marca d'aigua."""
+    W, H = CANVAS_SIZE
+    color = color or (40, 40, 40)
+    from PIL import ImageChops
+    gx = Image.linear_gradient("L").rotate(90).resize((W, H))   # 0 a l'esquerra -> 255 a la dreta
+    gy = Image.linear_gradient("L").resize((W, H))              # 0 a dalt -> 255 a baix
+    grad = ImageChops.add(gx.point(lambda v: v // 2), gy.point(lambda v: v // 2))
+    color = tuple(int(v * 0.85) for v in color)
+    c = Image.composite(Image.new("RGB", (W, H), (12, 12, 12)), Image.new("RGB", (W, H), color), grad)
+    c = c.convert("RGBA")
+    if os.path.exists(LOGO_PATH):
+        mida = 900
+        logo = Image.open(LOGO_PATH).convert("RGBA").resize((mida, mida), Image.LANCZOS)
+        logo.putalpha(logo.getchannel("A").point(lambda a: a * 0.10))
+        c.alpha_composite(logo, (W - mida + 160, -120))
+    return c
+
+
+def compon_imatge(image_bytes, titol="", etiqueta="", data_txt="", color=None):
+    """Si image_bytes és None, fa servir un fons generat (fons_generic).
+    Disseny "pantalla completa" (1600x900): imatge a sang retallada (prioritza la
     part de dalt del cartell), degradat fosc a sota, etiqueta groga de categoria,
     títol en blanc, data en franja groga i logo AgendaTGN a dalt a la dreta."""
     from PIL import ImageOps
     W, H = CANVAS_SIZE
     negre_txt, blanc = (17, 17, 17), (255, 255, 255)
-    img = Image.open(BytesIO(image_bytes)).convert("RGB")
-    c = ImageOps.fit(img, (W, H), Image.LANCZOS, centering=(0.5, 0.3)).convert("RGBA")
+    if image_bytes:
+        img = Image.open(BytesIO(image_bytes)).convert("RGB")
+        c = ImageOps.fit(img, (W, H), Image.LANCZOS, centering=(0.5, 0.3)).convert("RGBA")
+    else:
+        c = fons_generic(color)
 
     # Degradat negre de baix cap amunt
     grad = Image.new("L", (1, H))
@@ -334,12 +358,13 @@ def compon_imatge(image_bytes, titol="", etiqueta="", data_txt=""):
     while True:
         ft = ImageFont.truetype(FONT_PATH, mida)
         lin = _wrap_text(d, (titol or "").upper(), ft, W - 2 * x0 - 200)
-        if len(lin) <= 2 or mida <= 48:
-            lin = lin[:2]
+        max_lin = 2 if image_bytes else 3
+        if len(lin) <= max_lin or mida <= 48:
+            lin = lin[:max_lin]
             break
         mida -= 4
     yb = H - 70 - 66
-    y = yb - 24 - len(lin) * int(mida * 1.08)
+    y = yb - 44 - len(lin) * int(mida * 1.08)
     if etiqueta:
         fc = ImageFont.truetype(FONT_PATH, 34)
         tw = d.textlength(etiqueta, font=fc)
@@ -391,7 +416,12 @@ def get_activity_image_bytes(props, nom, categoria, data_txt=""):
                 return fit_image_contain(resp.content)
         except Exception as e:  # noqa: BLE001
             print(f"  -> Avís: no s'ha pogut baixar la imatge de Notion ({e}), es fa servir la plantilla genèrica.")
-    return generate_template_image(nom, categoria)
+    try:
+        return compon_imatge(None, nom, CATEGORIA_ETIQUETA.get(categoria, ""), data_txt,
+                             color=CATEGORY_COLORS.get(categoria))
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Avís: error amb la plantilla nova ({e}), es fa servir l'antiga.")
+        return generate_template_image(nom, categoria)
 
 
 # ---------------------------------------------------------------------------
