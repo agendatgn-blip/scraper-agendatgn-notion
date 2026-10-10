@@ -9,6 +9,7 @@ El to de tots els posts automàtics (individuals i resums) surt d'aquí.
   - CTAS               -> crides a l'acció (s'alternen i no es repeteixen)
 """
 
+import json
 import os
 import random
 import re
@@ -53,6 +54,61 @@ def _guia():
             return f.read()
     except OSError:
         return "Escriu en català, to local i directe, sense frases promocionals ni dades inventades."
+
+
+# ---------------------------------------------------------------- sempre en català
+# Paraules que només són castellà (no existeixen en català). Serveixen per detectar
+# si la IA ha escrit en castellà perquè les dades originals ho eren.
+_MARQUES_CASTELLA = re.compile(
+    r"\b(y|con|los|las|para|pero|muy|este|esta|estos|estas|sus|desde|hasta|también|"
+    r"como|donde|cuando|hay|será|sobre todo|nuevo|nueva|año|años|niños|entrada libre|"
+    r"gratuito|gratuita|concierto|exposición|espectáculo|fiesta)\b|ción\b|ciones\b|ñ",
+    re.I)
+
+
+def sembla_castella(text, minim=2):
+    """True si el text té pinta de ser en castellà."""
+    return len(_MARQUES_CASTELLA.findall(text or "")) >= minim
+
+
+def en_catala(textos, groq_api_key):
+    """Tradueix al català una llista de noms/títols d'activitat (els que ja ho són
+    tornen igual). Una sola crida a la IA per a tota la llista. Si falla, torna els
+    originals: mai atura la publicació."""
+    textos = [t or "" for t in textos]
+    if not any(t.strip() for t in textos) or not groq_api_key:
+        return textos
+    try:
+        from groq import Groq
+        client = Groq(api_key=groq_api_key)
+        instruccio = (
+            "Tradueix al català aquests noms d'activitats culturals. Regles:\n"
+            "- Si un nom ja és en català, torna'l exactament igual.\n"
+            "- Tradueix les paraules genèriques (concierto→concert, exposición→exposició, "
+            "taller, fiesta→festa, ruta, visita guiada, jornadas→jornades, etc.).\n"
+            "- NO tradueixis noms propis: persones, grups, companyies, marques, espais, "
+            "ni el títol concret d'una obra (llibre, pel·lícula, cançó, espectacle) si va entre cometes "
+            "o és clarament un títol.\n"
+            "- Mantén majúscules, cometes, emojis i signes com a l'original. No afegeixis res.\n"
+            "Respon NOMÉS amb un JSON: una llista de strings, en el mateix ordre i la mateixa quantitat.\n\n"
+            + json.dumps(textos, ensure_ascii=False))
+        r = client.chat.completions.create(model=MODEL, max_tokens=1500, reasoning_effort="low",
+                                           messages=[{"role": "user", "content": instruccio}])
+        cru = (r.choices[0].message.content or "").strip()
+        cru = re.sub(r"^```(?:json)?|```$", "", cru).strip()
+        sortida = json.loads(cru)
+        if not isinstance(sortida, list) or len(sortida) != len(textos):
+            raise ValueError("resposta amb mida diferent")
+        out = []
+        for orig, nou in zip(textos, sortida):
+            nou = str(nou or "").strip()
+            # si la traducció és buida o massa diferent de llargada, ens quedem l'original
+            ok = nou and "\n" not in nou and len(nou) <= max(2 * len(orig), len(orig) + 20)
+            out.append(nou if ok else orig)
+        return out
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Avís: no s'han pogut traduir els noms al català ({e})")
+        return textos
 
 
 def _prohibida(text):
@@ -134,6 +190,11 @@ def escriure(instruccio, max_chars, groq_api_key, textos_recents=None, intents=3
             continue
         text = re.sub(r"\n{3,}", "\n\n", text)
         if not text:
+            continue
+        if sembla_castella(text):
+            missatges += [{"role": "assistant", "content": text},
+                          {"role": "user", "content": "Això és en castellà. Escriu-ho en català "
+                           "(tradueix-ho tot menys els noms propis)."}]
             continue
         mala = _prohibida(text)
         if mala:

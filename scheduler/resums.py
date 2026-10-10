@@ -7,7 +7,7 @@ AgendaTGN - Resums de destacats
 
 A X es publica com a fil (1/2, 2/3…) si no hi cap en un tuit. A la Pàgina de
 Facebook, en un sol post. I s'envia a Telegram per copiar-lo al grup.
-Les dades (nom, lloc, hora) surten de Notion tal qual; la IA només escriu
+Les dades (lloc, hora) surten de Notion tal qual i els noms es passen al català; la IA només escriu
 la frase d'entrada amb la veu d'AgendaTGN (veu_agendatgn.py).
 Els posts individuals de cada activitat els continua fent publish_scheduler.py.
 
@@ -287,6 +287,9 @@ def resum_destacats(ini, fi, tipus, prev, forcar):
     if not acts:
         print(f"Cap activitat destacada entre {ini} i {fi}.")
         return
+    # Noms sempre en català a les xarxes (una sola crida per a tota la llista)
+    for a, nom_ca in zip(acts, veu.en_catala([a["nom"] for a in acts], GROQ_API_KEY)):
+        a["nom"] = nom_ca
     acts.sort(key=lambda a: (a["dia"] or fi, minuts(a["hora"])))
     blocs = []
     d = ini
