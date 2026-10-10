@@ -504,30 +504,9 @@ def generate_text(activity, mode, recents=None, max_desc=160):
 # ---------------------------------------------------------------------------
 
 def post_to_twitter(text, image_bytes=None):
-    import tweepy
-
-    client = tweepy.Client(
-        consumer_key=TWITTER_API_KEY,
-        consumer_secret=TWITTER_API_SECRET,
-        access_token=TWITTER_ACCESS_TOKEN,
-        access_token_secret=TWITTER_ACCESS_SECRET,
-    )
-    try:
-        media_ids = None
-        if image_bytes:
-            auth = tweepy.OAuth1UserHandler(
-                TWITTER_API_KEY, TWITTER_API_SECRET,
-                TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET,
-            )
-            api_v1 = tweepy.API(auth)
-            media = api_v1.media_upload(filename="imatge.png", file=BytesIO(image_bytes))
-            media_ids = [media.media_id]
-
-        client.create_tweet(text=text, media_ids=media_ids)
-        print(f"  -> Publicat a X: {text[:60]}...")
-    except Exception as e:
-        print(f"  -> ERROR detallat de X: {repr(e)}")
-        raise
+    """Publica a X amb l'API v2 (imatge inclosa). Torna True/False, mai peta."""
+    import x_pub
+    return bool(x_pub.publicar(text, image_bytes=image_bytes))
 
 
 LINIA_ENTRADES = "Entrades: "
@@ -664,20 +643,37 @@ def send_to_telegram_for_group(text, image_bytes=None):
 
 
 def publish_everywhere(subtitol, desc, cta, image_bytes, activity, mode, vol_facebook, clau):
+    """Publica a X, Threads i Facebook. Un error en una xarxa NO atura les altres.
+    Torna True si almenys una xarxa l'ha publicat."""
     import veu_agendatgn as veu
     text_x = compon_post(activity, subtitol, desc, cta, mode, limit=280, mida=_x_len)
     text_llarg = compon_post(activity, subtitol, desc, cta, mode)
-    post_to_twitter(text_x, image_bytes=image_bytes)
+    ok = {}
+    try:
+        ok["X"] = post_to_twitter(text_x, image_bytes=image_bytes)
+    except Exception as e:  # noqa: BLE001
+        print(f" -> ERROR X: {e!r}")
+        ok["X"] = False
     try:
         import threads_pub
         if threads_pub.configurat():
-            threads_pub.publicar_post(compon_post(activity, subtitol, desc, cta, mode, limit=threads_pub.LIMIT))
-    except Exception as e:  # noqa: BLE001  (Threads mai ha de trencar X/Facebook)
-        print(f"  -> Avís Threads: {e}")
+            ok["Threads"] = bool(threads_pub.publicar_post(
+                compon_post(activity, subtitol, desc, cta, mode, limit=threads_pub.LIMIT)))
+    except Exception as e:  # noqa: BLE001
+        print(f" -> Avís Threads: {e}")
+        ok["Threads"] = False
     if vol_facebook:
-        post_to_facebook(text_llarg, image_bytes=image_bytes)
+        try:
+            ok["Facebook"] = post_to_facebook(text_llarg, image_bytes=image_bytes)
+        except Exception as e:  # noqa: BLE001
+            print(f" -> ERROR Facebook: {e!r}")
+            ok["Facebook"] = False
         send_to_telegram_for_group(text_llarg, image_bytes=image_bytes)
-    veu.registrar_post(text_x, "Post individual", date.today().isoformat(), clau)
+    print("    Resultat: " + ", ".join(f"{k} {'OK' if v else 'ERROR'}" for k, v in ok.items()))
+    if any(ok.values()):
+        veu.registrar_post(text_x, "Post individual", avui_local().isoformat(), clau)
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -694,18 +690,80 @@ def _preu_llegible(preu):
         return str(preu)
 
 
-def process_activity(page):
+# ---------------------------------------------------------------------------
+# Repartiment al llarg del dia
+# ---------------------------------------------------------------------------
+# Els posts es reparteixen entre FINESTRA_INICI i FINESTRA_FI (hora de Tarragona).
+# El workflow s'executa cada 15 minuts i a cada passada es publica només la part
+# que toca: pendents / passades que queden. Si GitHub endarrereix alguna passada,
+# les següents s'emporten més posts i a partir de les 14:00 surt tot el que quedi.
+from zoneinfo import ZoneInfo  # noqa: E402
+
+TZ = ZoneInfo("Europe/Madrid")
+FINESTRA_INICI = (7, 45)
+FINESTRA_FI = (14, 0)
+MINUTS_ENTRE_PASSADES = 15
+
+
+def ara_local():
+    return datetime.now(TZ)
+
+
+def avui_local():
+    return ara_local().date()
+
+
+def quants_toca_ara(n_pendents, ara=None):
+    """Quants posts s'han de publicar en aquesta passada."""
+    if n_pendents <= 0:
+        return 0
+    if os.environ.get("PUBLICAR_TOT_ARA", "").lower() in ("1", "true", "yes", "si", "sí"):
+        return n_pendents
+    ara = ara or ara_local()
+    inici = ara.replace(hour=FINESTRA_INICI[0], minute=FINESTRA_INICI[1], second=0, microsecond=0)
+    fi = ara.replace(hour=FINESTRA_FI[0], minute=FINESTRA_FI[1], second=0, microsecond=0)
+    if ara < inici:
+        return 0
+    if ara >= fi:
+        return n_pendents
+    passades = int((fi - ara).total_seconds() // (MINUTS_ENTRE_PASSADES * 60)) + 1
+    return -(-n_pendents // passades)  # arrodonit cap amunt
+
+
+def _hora_ordre(hora):
+    m = re.search(r"(\d{1,2})[:.h](\d{2})?", hora or "")
+    return (int(m.group(1)), int(m.group(2) or 0)) if m else (99, 0)
+
+
+def pendents_de(page):
+    """Llista de (ordre, page, mode) que toca publicar avui per aquesta activitat."""
+    props = page["properties"]
+    data_inici_raw = get_prop_text(props, "Data inici")
+    if not data_inici_raw:
+        return []
+    data_inici = datetime.fromisoformat(data_inici_raw.split("T")[0]).date()
+    avui = avui_local()
+    data_avancament = data_inici - timedelta(days=DAYS_BEFORE)
+    # No té sentit publicar "avançament" el mateix dia de l'esdeveniment.
+    cal_avancament = (not get_prop_text(props, "Publicat Avançament")
+                      and data_avancament <= avui < data_inici)
+    cal_dia = not get_prop_text(props, "Publicat Dia") and avui == data_inici
+    hora = _hora_ordre(get_prop_text(props, "Hora") or "")
+    out = []
+    # Primer els "avui" (per hora d'inici), després els avançaments (per data).
+    if cal_dia:
+        out.append(((0, data_inici, hora), page, "dia"))
+    if cal_avancament:
+        out.append(((1, data_inici, hora), page, "avancament"))
+    return out
+
+
+def publica(page, mode):
     props = page["properties"]
     page_id = page["id"]
 
     nom = get_prop_text(props, "Name") or "(sense nom)"
-    data_inici_raw = get_prop_text(props, "Data inici")
-    if not data_inici_raw:
-        return
-
-    data_inici = datetime.fromisoformat(data_inici_raw.split("T")[0]).date()
-    avui = date.today()
-    data_avancament = data_inici - timedelta(days=DAYS_BEFORE)
+    data_inici = datetime.fromisoformat(get_prop_text(props, "Data inici").split("T")[0]).date()
     data_text = f"{DIES_SETMANA_CA[data_inici.weekday()]} dia {data_inici.day}"
 
     activity = {
@@ -726,39 +784,21 @@ def process_activity(page):
         lloc_text=activity["lloc"], lloc_ids=rel_lloc, llocs=LLOCS_ENTRADES)
     categoria = get_prop_text(props, "Categoria") or ""
     activity["categoria"] = categoria
-
-    publicat_avancament = get_prop_text(props, "Publicat Avançament")
-    publicat_dia = get_prop_text(props, "Publicat Dia")
     vol_facebook = get_prop_text(props, "Facebook")
 
-    # No té sentit publicar "avançament" el mateix dia de l'esdeveniment:
-    # el tuit de "dia" ja ho cobreix i sortirien els dos alhora.
-    cal_avancament = not publicat_avancament and avui < data_inici and avui >= data_avancament
-    cal_dia = not publicat_dia and avui == data_inici
-
     image_bytes = get_activity_image_bytes(
-        props, nom, categoria, etiqueta_data(data_inici, activity["hora"])) if (cal_avancament or cal_dia) else None
+        props, nom, categoria, etiqueta_data(data_inici, activity["hora"]))
 
-    # --- Publicació "Avançament" ---
-    # Es dispara si avui és exactament la data -5, o si ja hem passat
-    # aquesta data (aprovació tardana) i encara no s'ha publicat,
-    # sempre que encara no sigui el mateix dia de l'esdeveniment.
-    if cal_avancament:
-        print(f"[{nom}] Generant publicació d'avançament...")
-        subtitol, desc, cta = generate_text(activity, "avancament", RECENTS)
-        publish_everywhere(subtitol, desc, cta, image_bytes, activity, "avancament", vol_facebook,
-                           f"post-{page_id}-avancament")
+    camp = "Publicat Dia" if mode == "dia" else "Publicat Avançament"
+    que = "del dia" if mode == "dia" else "d'avançament"
+    print(f"[{nom}] Generant publicació {que}...")
+    subtitol, desc, cta = generate_text(activity, mode, RECENTS)
+    if publish_everywhere(subtitol, desc, cta, image_bytes, activity, mode, vol_facebook,
+                          f"post-{page_id}-{mode}"):
         RECENTS.insert(0, desc or subtitol)
-        mark_published(page_id, "Publicat Avançament")
-
-    # --- Publicació "Dia" ---
-    if cal_dia:
-        print(f"[{nom}] Generant publicació del dia...")
-        subtitol, desc, cta = generate_text(activity, "dia", RECENTS)
-        publish_everywhere(subtitol, desc, cta, image_bytes, activity, "dia", vol_facebook,
-                           f"post-{page_id}-dia")
-        RECENTS.insert(0, desc or subtitol)
-        mark_published(page_id, "Publicat Dia")
+        mark_published(page_id, camp)
+    else:
+        print("    No s'ha publicat enlloc: es tornarà a provar a la següent passada.")
 
 
 RECENTS = []
@@ -767,18 +807,25 @@ LLOCS_ENTRADES = []
 
 def main():
     check_env()
+    ara = ara_local()
+    print(f"Executant scheduler — {ara:%Y-%m-%d %H:%M} (hora de Tarragona)")
+    activities = query_approved_activities()
+    print(f"Activitats aprovades trobades: {len(activities)}")
+    pendents = sorted((p for page in activities for p in pendents_de(page)), key=lambda x: x[0])
+    n = quants_toca_ara(len(pendents), ara)
+    print(f"Posts pendents avui: {len(pendents)} · en aquesta passada: {n}")
+    if not n:
+        print("Fet (res a publicar ara).")
+        return
     import veu_agendatgn as veu
     RECENTS.extend(veu.recents(10))
     LLOCS_ENTRADES.extend(entrades_llocs.carrega(NOTION_TOKEN))
-    print(f"Executant scheduler — {date.today().isoformat()}")
-    activities = query_approved_activities()
-    print(f"Activitats aprovades trobades: {len(activities)}")
-    for page in activities:
+    for _, page, mode in pendents[:n]:
         try:
-            process_activity(page)
-        except Exception as e:
+            publica(page, mode)
+        except Exception as e:  # noqa: BLE001
             name = get_prop_text(page["properties"], "Name")
-            print(f"ERROR processant '{name}': {e}")
+            print(f"ERROR processant '{name}': {e!r}")
     print("Fet.")
 
 

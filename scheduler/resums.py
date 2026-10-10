@@ -249,21 +249,13 @@ def fer_fil(intro, blocs, limit=LIMIT_X, mesura=None):
 
 
 def publicar_fil_x(tuits, imatge):
-    import tweepy
-    k = {x: os.environ.get(x) for x in ["TWITTER_API_KEY", "TWITTER_API_SECRET",
-                                         "TWITTER_ACCESS_TOKEN", "TWITTER_ACCESS_SECRET"]}
-    client = tweepy.Client(consumer_key=k["TWITTER_API_KEY"], consumer_secret=k["TWITTER_API_SECRET"],
-                           access_token=k["TWITTER_ACCESS_TOKEN"], access_token_secret=k["TWITTER_ACCESS_SECRET"])
-    media_ids = None
-    if imatge:
-        auth = tweepy.OAuth1UserHandler(k["TWITTER_API_KEY"], k["TWITTER_API_SECRET"],
-                                        k["TWITTER_ACCESS_TOKEN"], k["TWITTER_ACCESS_SECRET"])
-        media_ids = [tweepy.API(auth).media_upload(filename="resum.png", file=BytesIO(imatge)).media_id]
+    """Publica el fil a X amb l'API v2 (x_pub). La imatge només al primer tuit."""
+    import x_pub
     anterior = None
     for i, t in enumerate(tuits):
-        r = client.create_tweet(text=t, media_ids=media_ids if i == 0 else None,
-                                in_reply_to_tweet_id=anterior)
-        anterior = r.data["id"]
+        anterior = x_pub.publicar(t, image_bytes=imatge if i == 0 else None, reply_to=anterior)
+        if not anterior:
+            raise RuntimeError(f"X: fil aturat a la part {i + 1}")
         print(f"  -> X {i + 1}/{len(tuits)} publicat")
 
 
@@ -344,7 +336,10 @@ def publicar(tipus, clau, dia, acts, tuits, fb, titol, etiqueta, prev, fil_threa
         previsualitzar(tuits, fb, fil_threads)
         return
     imatge = generate_template_image(titol, etiqueta)
-    publicar_fil_x(tuits, imatge)
+    try:
+        publicar_fil_x(tuits, imatge)
+    except Exception as e:  # noqa: BLE001 (un error a X no atura Threads ni Facebook)
+        print(f"  -> ERROR X: {e}")
     try:
         import threads_pub
         if fil_threads and threads_pub.configurat():
