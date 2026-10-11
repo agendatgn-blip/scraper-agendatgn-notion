@@ -2,7 +2,8 @@
 """
 AgendaTGN - Publish Scheduler
 ==============================
-Cada dia (via GitHub Actions cron), aquest script:
+Cada 15 min (cron extern + cron de GitHub de reserva), aquest script:
+(horari: vegeu 'Horari de publicació' més avall)
 
 1. Consulta la base de dades Notion "Activitats".
 2. Per cada activitat amb "Aprovada publicació" = True:
@@ -480,7 +481,8 @@ def generate_text(activity, mode, recents=None, max_desc=160):
         "(ex.: «Flamenc, circ i teatre», «Concert de jazz», «Mercat d'artesania»). Sense emojis ni punt final.\n"
         "2) Una o dues frases curtes que expliquin què és, de manera informativa i concreta "
         "(ex.: «Un espectacle familiar que combina flamenc, circ i teatre amb humor, malabars i música.»). "
-        "NO hi posis data, hora, lloc, preu, enllaços, emojis ni crides a l'acció: això ja surt a sota."
+        "NO hi posis data, hora, lloc, preu, enllaços, emojis ni crides a l'acció: això ja surt a sota.\n"
+        "Escriu SEMPRE en català, encara que les dades estiguin en castellà (tradueix-les)."
         + (" És avui: pots començar per «Avui» si queda natural." if mode == "dia" else "")
     )
     resultat = veu.escriure(instruccio, max_desc + 50, GROQ_API_KEY, textos_recents=recents)
@@ -691,18 +693,23 @@ def _preu_llegible(preu):
 
 
 # ---------------------------------------------------------------------------
-# Repartiment al llarg del dia
+# Horari de publicació (hora de Tarragona)
 # ---------------------------------------------------------------------------
-# Els posts es reparteixen entre FINESTRA_INICI i FINESTRA_FI (hora de Tarragona).
-# El workflow s'executa cada 15 minuts i a cada passada es publica només la part
-# que toca: pendents / passades que queden. Si GitHub endarrereix alguna passada,
-# les següents s'emporten més posts i a partir de les 14:00 surt tot el que quedi.
+#   08:00  resum del dia                      -> resums.py
+#   08:15  destacats dj / dv / ds             -> resums.py
+#   09:00  posts "del dia": si n'hi ha més de 5, en packs de 5 cada 30 min
+#   10:00-13:30  avançaments repartits cada 30 min (a l'última franja surt tot)
+# El workflow el dispara un cron extern cada 15 min (cron-job.org) i, de reserva,
+# el cron de GitHub. Les passades de :15 i :45 no publiquen avançaments, i els
+# posts del dia es compten per franja, així que passades de més no dupliquen res.
 from zoneinfo import ZoneInfo  # noqa: E402
 
 TZ = ZoneInfo("Europe/Madrid")
-FINESTRA_INICI = (7, 45)
-FINESTRA_FI = (14, 0)
-MINUTS_ENTRE_PASSADES = 15
+HORA_POSTS_DIA = (9, 0)
+PACK_DIA = 5
+AVANC_INICI = (10, 0)
+AVANC_FI = (13, 30)          # inici de l'última franja d'avançaments
+FRANJA_MIN = 30
 
 
 def ara_local():
@@ -713,21 +720,43 @@ def avui_local():
     return ara_local().date()
 
 
-def quants_toca_ara(n_pendents, ara=None):
-    """Quants posts s'han de publicar en aquesta passada."""
+def _a_les(ara, hm):
+    return ara.replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
+
+
+def _publicar_tot_ara():
+    return os.environ.get("PUBLICAR_TOT_ARA", "").lower() in ("1", "true", "yes", "si", "sí")
+
+
+def quants_dia(n_pendents, n_ja_publicats, ara):
+    """Posts del dia: a les 9:00 fins a 5; cada 30 min, 5 més. Mai més de 5 per passada."""
     if n_pendents <= 0:
         return 0
-    if os.environ.get("PUBLICAR_TOT_ARA", "").lower() in ("1", "true", "yes", "si", "sí"):
+    if _publicar_tot_ara():
         return n_pendents
-    ara = ara or ara_local()
-    inici = ara.replace(hour=FINESTRA_INICI[0], minute=FINESTRA_INICI[1], second=0, microsecond=0)
-    fi = ara.replace(hour=FINESTRA_FI[0], minute=FINESTRA_FI[1], second=0, microsecond=0)
+    inici = _a_les(ara, HORA_POSTS_DIA)
+    if ara < inici:
+        return 0
+    franja = int((ara - inici).total_seconds() // (FRANJA_MIN * 60))
+    permesos = PACK_DIA * (franja + 1) - n_ja_publicats
+    return max(0, min(PACK_DIA, n_pendents, permesos))
+
+
+def quants_avancaments(n_pendents, ara):
+    """Avançaments repartits a parts iguals entre les 10:00 i les 13:30, cada 30 min."""
+    if n_pendents <= 0:
+        return 0
+    if _publicar_tot_ara():
+        return n_pendents
+    inici, fi = _a_les(ara, AVANC_INICI), _a_les(ara, AVANC_FI)
     if ara < inici:
         return 0
     if ara >= fi:
         return n_pendents
-    passades = int((fi - ara).total_seconds() // (MINUTS_ENTRE_PASSADES * 60)) + 1
-    return -(-n_pendents // passades)  # arrodonit cap amunt
+    if ara.minute % FRANJA_MIN >= 15:   # només a la primera meitat de cada franja
+        return 0
+    franges_restants = int((fi - ara).total_seconds() // (FRANJA_MIN * 60)) + 1
+    return -(-n_pendents // franges_restants)  # arrodonit cap amunt
 
 
 def _hora_ordre(hora):
@@ -763,6 +792,12 @@ def publica(page, mode):
     page_id = page["id"]
 
     nom = get_prop_text(props, "Name") or "(sense nom)"
+    # Sempre en català a les xarxes, encara que a Notion el nom sigui en castellà
+    import veu_agendatgn as veu
+    nom_ca = veu.en_catala([nom], GROQ_API_KEY)[0]
+    if nom_ca != nom:
+        print(f"[{nom}] -> en català: {nom_ca}")
+        nom = nom_ca
     data_inici = datetime.fromisoformat(get_prop_text(props, "Data inici").split("T")[0]).date()
     data_text = f"{DIES_SETMANA_CA[data_inici.weekday()]} dia {data_inici.day}"
 
@@ -808,19 +843,31 @@ LLOCS_ENTRADES = []
 def main():
     check_env()
     ara = ara_local()
+    avui = ara.date()
     print(f"Executant scheduler — {ara:%Y-%m-%d %H:%M} (hora de Tarragona)")
     activities = query_approved_activities()
     print(f"Activitats aprovades trobades: {len(activities)}")
     pendents = sorted((p for page in activities for p in pendents_de(page)), key=lambda x: x[0])
-    n = quants_toca_ara(len(pendents), ara)
-    print(f"Posts pendents avui: {len(pendents)} · en aquesta passada: {n}")
-    if not n:
+    dia = [p for p in pendents if p[2] == "dia"]
+    avanc = [p for p in pendents if p[2] == "avancament"]
+    ja_dia = sum(1 for page in activities
+                 if get_prop_text(page["properties"], "Publicat Dia")
+                 and (get_prop_text(page["properties"], "Data inici") or "")[:10] == avui.isoformat())
+    n_dia = quants_dia(len(dia), ja_dia, ara)
+    # Els avançaments no es barregen amb un pack del dia (excepte a l'última franja)
+    n_av = quants_avancaments(len(avanc), ara)
+    if n_dia and ara < _a_les(ara, AVANC_FI) and not _publicar_tot_ara():
+        n_av = 0
+    print(f"Del dia: {len(dia)} pendents ({ja_dia} ja publicats) · ara {n_dia}")
+    print(f"Avançaments: {len(avanc)} pendents · ara {n_av}")
+    tanda = dia[:n_dia] + avanc[:n_av]
+    if not tanda:
         print("Fet (res a publicar ara).")
         return
     import veu_agendatgn as veu
     RECENTS.extend(veu.recents(10))
     LLOCS_ENTRADES.extend(entrades_llocs.carrega(NOTION_TOKEN))
-    for _, page, mode in pendents[:n]:
+    for _, page, mode in tanda:
         try:
             publica(page, mode)
         except Exception as e:  # noqa: BLE001

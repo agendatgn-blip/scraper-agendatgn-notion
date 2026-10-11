@@ -2,8 +2,10 @@
 """
 AgendaTGN - Resums de destacats
 ===============================
-1. DESTACATS DE LA SETMANA  (dimecres 20:00): activitats amb "Destacada", de dijous a diumenge.
-2. DESTACATS DEL CAP DE SETMANA (divendres 8:00): activitats amb "Destacada", de divendres a diumenge.
+0. RESUM DEL DIA (cada dia 8:00): totes les activitats aprovades d'avui, per franges.
+1. DESTACATS DE LA SETMANA  (dijous 8:15): activitats amb "Destacada", de dijous a diumenge.
+2. DESTACATS DEL CAP DE SETMANA (divendres 8:15): "Destacada", de divendres a diumenge.
+3. DESTACATS DEL CAP DE SETMANA (dissabte 8:15): "Destacada", dissabte i diumenge.
 
 A X es publica com a fil (1/2, 2/3…) si no hi cap en un tuit. A la Pàgina de
 Facebook, en un sol post. I s'envia a Telegram per copiar-lo al grup.
@@ -13,6 +15,7 @@ Els posts individuals de cada activitat els continua fent publish_scheduler.py.
 
 Ús:
   python scheduler/resums.py                                   # automàtic segons el dia i l'hora
+  python scheduler/resums.py --mode dia --previsualitzar
   python scheduler/resums.py --mode setmana --previsualitzar
   python scheduler/resums.py --mode cap_de_setmana --data 2026-10-09 --previsualitzar
 """
@@ -43,8 +46,9 @@ DS_LLOCS = "bc7d9e22-f18d-4f06-bb83-4bee33e0cd32"
 DS_REGISTRE = "d61de192-b46e-4b69-9db1-67f731f5ef9a"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-HORA_SETMANA = 20       # dimecres 20:00
-HORA_CAP_SETMANA = 8    # divendres 8:00
+HORA_DIA = (8, 0)        # resum del dia, cada dia
+HORA_DESTACATS = (8, 15)  # destacats: dijous (setmana), divendres i dissabte (cap de setmana)
+HORA_LIMIT = 12           # passades més tard (GitHub endarrerit) ja no publiquen resums
 LLOCS_EXCLOSOS = ["tarraco arena", "palau firal", "palau de congressos"]
 
 MESOS_CA = ["gener", "febrer", "març", "abril", "maig", "juny", "juliol",
@@ -274,6 +278,62 @@ def previsualitzar(tuits, fb, fil_threads=None):
 
 
 # ---------------------------------------------------------------- resums
+def franja(a):
+    m = minuts(a["hora"])
+    if m >= 99 * 60:
+        return "TOT EL DIA"
+    if m < 14 * 60:
+        return "MATÍ"
+    if m < 20 * 60:
+        return "TARDA"
+    return "NIT"
+
+
+def resum_dia(dia, prev, forcar):
+    clau = f"dia-{dia.isoformat()}"
+    if not prev and not forcar and ja_publicat(clau):
+        print(f"{clau}: ja publicat.")
+        return
+    llocs = {p["id"]: prop(p, "Nom") for p in query(DS_LLOCS)}
+    acts = preparar(activitats_entre(dia, dia), llocs, excloure_grans=False)
+    if not acts:
+        print(f"Cap activitat aprovada per a {dia}.")
+        return
+    for a, nom_ca in zip(acts, veu.en_catala([a["nom"] for a in acts], GROQ_API_KEY)):
+        a["nom"] = nom_ca
+    acts.sort(key=lambda a: minuts(a["hora"]))
+    blocs = []
+    for f in ["TOT EL DIA", "MATÍ", "TARDA", "NIT"]:
+        del_f = [a for a in acts if franja(a) == f]
+        if del_f:
+            blocs.append((f, [linia(a) for a in del_f]))
+    mes = MESOS_CA[dia.month - 1]
+    data_txt = f"{nom_dia(dia)} " + (f"d'{mes}" if mes[0] in "aeiou" else f"de {mes}")
+    recents = veu.recents(10)
+    resum_plans = "; ".join(a["nom"] for a in acts[:8])
+    intro = veu.escriure(
+        f"Presentem el que passa avui ({data_txt}) a Tarragona: {resum_plans}. "
+        "Escriu NOMÉS una frase d'entrada curta i informativa per presentar l'agenda d'avui; "
+        "el títol i la llista ja hi són. Sense emojis, enllaços ni crida a l'acció.",
+        120, GROQ_API_KEY, textos_recents=recents) \
+        or random.choice(["Això és el que hi ha avui:", "L'agenda d'avui:", "Avui passa això:"])
+    intro = f"AVUI A TARRAGONA | {data_txt}\n\n{intro}"
+    cta = veu.triar_cta(recents)
+
+    def amb_cta(parts, limit, mesura):
+        if cta and mesura(parts[-1] + "\n\n" + cta) <= limit:
+            m = re.match(r"(.*?)( \(\d+/\d+\))?$", parts[-1], re.S)
+            parts[-1] = m.group(1) + "\n\n" + cta + (m.group(2) or "")
+        return parts
+
+    tuits = amb_cta(fer_fil(intro, blocs), LIMIT_X, x_len)
+    fil_threads = amb_cta(fer_fil(intro, blocs, limit=490, mesura=len), 490, len)
+    fb = intro + "\n\n" + "\n\n".join(c + "\n" + "\n".join(ls) for c, ls in blocs) + \
+        (f"\n\n{cta}" if cta else "")
+    titol = f"Avui · {dia.day} {MESOS_CA[dia.month - 1]}"
+    publicar("Resum del dia", clau, dia, acts, tuits, fb, titol, "Agenda", prev, fil_threads)
+
+
 def resum_destacats(ini, fi, tipus, prev, forcar):
     """tipus = 'setmana' (dj-dg) | 'cap_de_setmana' (dv-dg)"""
     setmana = tipus == "setmana"
@@ -357,8 +417,8 @@ def publicar(tipus, clau, dia, acts, tuits, fb, titol, etiqueta, prev, fil_threa
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["auto", "setmana", "cap_de_setmana"], default="auto")
-    ap.add_argument("--data", help="AAAA-MM-DD d'un dia d'aquella setmana (per defecte, avui)")
+    ap.add_argument("--mode", choices=["auto", "dia", "setmana", "cap_de_setmana"], default="auto")
+    ap.add_argument("--data", help="AAAA-MM-DD (per defecte, avui)")
     ap.add_argument("--previsualitzar", action="store_true",
                     help="No publica: t'ho envia per Telegram per revisar-ho")
     ap.add_argument("--forcar", action="store_true", help="Ignora l'hora i el registre de duplicats")
@@ -370,22 +430,32 @@ def main():
 
     ara = datetime.now(TZ)
     dia = date.fromisoformat(a.data) if a.data else ara.date()
-    mode = a.mode
-    if mode == "auto":
-        # GitHub executa a dues hores UTC (estiu/hivern); només actuem a l'hora local bona
-        if dia.weekday() == 2 and HORA_SETMANA <= ara.hour < HORA_SETMANA + 2:
-            mode = "setmana"
-        elif dia.weekday() == 4 and HORA_CAP_SETMANA <= ara.hour < HORA_CAP_SETMANA + 2:
-            mode = "cap_de_setmana"
-        else:
+    if a.mode == "auto":
+        hm = (ara.hour, ara.minute)
+        if ara.hour >= HORA_LIMIT or hm < HORA_DIA:
             print(f"{ara:%A %H:%M}: no toca cap resum.")
             return
-    # dates a partir del dilluns de la setmana del dia indicat
-    dilluns = dia - timedelta(days=dia.weekday())
-    if mode == "setmana":
-        resum_destacats(dilluns + timedelta(days=3), dilluns + timedelta(days=6), "setmana", a.previsualitzar, a.forcar)
+        modes = ["dia"]
+        if dia.weekday() == 3 and hm >= HORA_DESTACATS:
+            modes.append("setmana")
+        elif dia.weekday() in (4, 5) and hm >= HORA_DESTACATS:
+            modes.append("cap_de_setmana")
     else:
-        resum_destacats(dilluns + timedelta(days=4), dilluns + timedelta(days=6), "cap_de_setmana", a.previsualitzar, a.forcar)
+        modes = [a.mode]
+    dilluns = dia - timedelta(days=dia.weekday())
+    diumenge = dilluns + timedelta(days=6)
+    for mode in modes:
+        try:
+            if mode == "dia":
+                resum_dia(dia, a.previsualitzar, a.forcar)
+            elif mode == "setmana":
+                resum_destacats(dilluns + timedelta(days=3), diumenge, "setmana", a.previsualitzar, a.forcar)
+            else:
+                # divendres -> dv-dg; dissabte -> ds-dg (sense el que ja ha passat)
+                ini = max(dilluns + timedelta(days=4), dia)
+                resum_destacats(ini, diumenge, "cap_de_setmana", a.previsualitzar, a.forcar)
+        except Exception as e:  # noqa: BLE001 (un resum fallit no atura l'altre)
+            print(f"ERROR resum {mode}: {e!r}")
 
 
 if __name__ == "__main__":
