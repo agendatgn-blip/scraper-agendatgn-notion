@@ -1,19 +1,15 @@
 name: Resums AgendaTGN (destacats)
 
+# Només manual (previsualitzar o forçar un resum). Els resums automàtics
+# (8:00 dia, 8:15 dj/dv/ds) els fa el workflow "Publish Scheduler AgendaTGN".
 on:
-  schedule:
-    # GitHub va en hora UTC. Posem les dues hores (estiu i hivern) i l'script
-    # només publica a l'hora bona de Tarragona:
-    # dimecres 20:00 (destacats de la setmana) i divendres 8:00 (cap de setmana).
-    - cron: "0 18,19 * * 3"
-    - cron: "0 6,7 * * 5"
   workflow_dispatch:
     inputs:
       mode:
         description: "Quin resum"
         type: choice
-        options: [setmana, cap_de_setmana]
-        default: setmana
+        options: [dia, setmana, cap_de_setmana]
+        default: dia
       data:
         description: "Un dia d'aquella setmana, AAAA-MM-DD (buit = aquesta setmana)"
         required: false

@@ -1,11 +1,14 @@
 name: Publish Scheduler AgendaTGN
 
 on:
+  # El motor principal és un cron EXTERN (cron-job.org) que dispara aquest workflow
+  # cada 15 min de 8:00 a 21:00 (hora de Tarragona), perquè el cron de GitHub
+  # arriba amb hores de retard. Aquest de sota només és de reserva.
+  # Horari (el decideixen els scripts segons l'hora de Tarragona):
+  #   08:00 resum del dia · 08:15 destacats (dj, dv, ds) · 09:00 posts del dia
+  #   (packs de 5 cada 30 min) · 10:00-13:30 avançaments.
   schedule:
-    # Cada 15 minuts de 05:07 a 13:52 UTC (07:07-15:52 a l'estiu, 06:07-14:52 a l'hivern).
-    # L'script mira l'hora de Tarragona i reparteix els posts entre les 07:45 i les 14:00.
-    # Minuts "estranys" (7, 22, 37, 52) perquè GitHub endarrereix menys que a l'hora en punt.
-    - cron: "7,22,37,52 5-13 * * *"
+    - cron: "3,33 5-19 * * *"
   workflow_dispatch:
     inputs:
       publicar_tot_ara:
@@ -34,7 +37,26 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run scheduler
+      - name: Resums (dia i destacats)
+        continue-on-error: true
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          PUBLICAR_TOT_ARA: ${{ github.event.inputs.publicar_tot_ara }}
+        run: python scheduler/resums.py
+
+      - name: Posts (del dia i avançaments)
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
