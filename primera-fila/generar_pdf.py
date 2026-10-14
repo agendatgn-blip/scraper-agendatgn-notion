@@ -56,7 +56,7 @@ def mapa(edicio_id, sortida):
     """Executa mapa_setmana.py i torna (dades_json, carpeta) o (None, None)."""
     try:
         subprocess.run([sys.executable, str(AQUI / "mapa_setmana.py"), "--edicio", edicio_id, "--sortida", str(sortida)],
-                       check=True, cwd=AQUI, timeout=360)
+                       check=True, cwd=AQUI, timeout=900)
     except Exception as e:  # noqa: BLE001
         print(f"Avís: el mapa no s'ha pogut generar ({e}). El PDF sortirà sense mapa.")
         return None, None
@@ -250,15 +250,28 @@ def pujar_drive(path, nom):
 
 
 def avisar_telegram(path, text):
+    """Envia el PDF per Telegram. Si falla, ho diu al registre i envia almenys el missatge amb l'enllaç."""
     tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not (tok and chat):
+        print("Avís Telegram: falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID. No s'envia res.")
         return
+    api = f"https://api.telegram.org/bot{tok}"
     try:
         with open(path, "rb") as f:
-            requests.post(f"https://api.telegram.org/bot{tok}/sendDocument", timeout=120,
-                          data={"chat_id": chat, "caption": text[:1000]}, files={"document": (Path(path).name, f, "application/pdf")})
+            r = requests.post(f"{api}/sendDocument", timeout=180,
+                              data={"chat_id": chat, "caption": text[:1000]},
+                              files={"document": (Path(path).name, f, "application/pdf")})
+        if r.ok and r.json().get("ok"):
+            print("Telegram: PDF enviat ✓")
+            return
+        print(f"Avís Telegram (PDF): {r.status_code} {r.text[:300]}")
     except Exception as e:  # noqa: BLE001
-        print(f"Avís Telegram: {e}")
+        print(f"Avís Telegram (PDF): {e}")
+    try:
+        r = requests.post(f"{api}/sendMessage", timeout=60, json={"chat_id": chat, "text": text})
+        print("Telegram: missatge amb l'enllaç enviat ✓" if r.ok else f"Avís Telegram (missatge): {r.status_code} {r.text[:300]}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Avís Telegram (missatge): {e}")
 
 
 def main():

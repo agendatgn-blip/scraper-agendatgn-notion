@@ -7,6 +7,7 @@ blaus, mar blau clar, parcs rosa) i hi posa els llocs numerats.
 
 Ús:
     python mapa_propi.py Llocs_Notion_final.csv
+    python mapa_propi.py --base      -> baixa i desa el mapa base de Tarragona (un sol cop)
 
 Resultat (a la mateixa carpeta):
     mapa_general.svg / mapa_general.png      -> tota la zona
@@ -95,7 +96,19 @@ def bbox_amb_proporcio(punts, marge_m, ratio):
     return (lon_c - w / 2 / m_lon, lat_c - h / 2 / m_lat, lon_c + w / 2 / m_lon, lat_c + h / 2 / m_lat)
 
 
-def descarregar(bbox):
+# ---------- MAPA BASE (es baixa UNA vegada i es guarda al repo) ----------
+# Zona fixa que cobreix Tarragona ciutat (de Sant Pere i Sant Pau / Llevant fins al Francolí i el port).
+# Si el mapa de la setmana cap aquí dins, es dibuixa amb aquestes dades en segons, sense baixar res.
+from pathlib import Path
+BASE_BBOX = (1.190, 41.080, 1.305, 41.165)  # (lon_min, lat_min, lon_max, lat_max)
+BASE_FITXER = Path(__file__).resolve().parent / "mapa_base" / "tarragona.gpkg"
+CAPES = ["carrers", "costa", "aigua", "parcs", "edificis", "tren"]
+_BASE = None
+
+
+def _baixar(bbox):
+    """Baixa les capes d'OpenStreetMap per a un bbox (lent: pot trigar minuts)."""
+    ox.settings.requests_timeout = 600
     print("  · carrers...")
     G = ox.graph_from_bbox(bbox, network_type="all", simplify=True, retain_all=True)
     carrers = ox.graph_to_gdfs(G, nodes=False)
@@ -114,6 +127,59 @@ def descarregar(bbox):
     edificis = feats({"building": True}, "edificis")
     tren = feats({"railway": "rail"}, "via del tren")
     return carrers, costa, aigua, parcs, edificis, tren
+
+
+def _primer(v):
+    return v[0] if isinstance(v, list) else v
+
+
+def crear_base():
+    """Baixa la zona BASE_BBOX i la desa a mapa_base/tarragona.gpkg (només cal fer-ho un cop)."""
+    capes = _baixar(BASE_BBOX)
+    BASE_FITXER.parent.mkdir(parents=True, exist_ok=True)
+    if BASE_FITXER.exists():
+        BASE_FITXER.unlink()
+    for nom, g in zip(CAPES, capes):
+        g = g.reset_index(drop=True)
+        if nom == "carrers":
+            g = gpd.GeoDataFrame({"highway": g["highway"].apply(_primer).astype(str),
+                                  "name": g["name"].apply(_primer) if "name" in g else None},
+                                 geometry=g.geometry.values, crs=g.crs)
+        else:
+            g = gpd.GeoDataFrame(geometry=g.geometry.values, crs=g.crs or "EPSG:4326")
+            if nom in ("aigua", "parcs", "edificis"):
+                g = g[g.geom_type.isin(["Polygon", "MultiPolygon"])]
+        if g.empty:  # el gpkg no accepta capes buides sense columnes
+            g = gpd.GeoDataFrame({"buit": [1]}, geometry=[None], crs="EPSG:4326")
+        g.to_file(BASE_FITXER, layer=nom, driver="GPKG")
+        print(f"  ✓ {nom}: {len(g)} elements")
+    print(f"Mapa base desat a {BASE_FITXER} ({BASE_FITXER.stat().st_size / 1e6:.1f} MB)")
+
+
+def _dins_base(bbox):
+    b = BASE_BBOX
+    return bbox[0] >= b[0] and bbox[1] >= b[1] and bbox[2] <= b[2] and bbox[3] <= b[3]
+
+
+def descarregar(bbox):
+    """Capes del mapa per a bbox: del mapa base si hi cap; si no, les baixa d'OpenStreetMap."""
+    global _BASE
+    if BASE_FITXER.exists() and _dins_base(bbox):
+        if _BASE is None:
+            print("  · llegint el mapa base (sense baixar res)...")
+            _BASE = {}
+            for nom in CAPES:
+                g = gpd.read_file(BASE_FITXER, layer=nom)
+                _BASE[nom] = g[g.geometry.notna()].reset_index(drop=True)
+        marc = box(*bbox).buffer(0.003)
+        sortida = []
+        for nom in CAPES:
+            g = _BASE[nom]
+            idx = g.sindex.query(marc, predicate="intersects") if not g.empty else []
+            sortida.append(g.iloc[sorted(idx)] if len(idx) else gpd.GeoDataFrame(geometry=[], crs="EPSG:4326"))
+        return tuple(sortida)
+    print("  · (el mapa surt de la zona base: baixant d'OpenStreetMap...)")
+    return _baixar(bbox)
 
 
 def poligon_mar(bbox, costa):
@@ -246,6 +312,9 @@ def dibuixar(bbox, capes, llocs, sortida, mida_pin, n_etiquetes=8, w=PAGINA_W, h
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--base":
+        crear_base()
+        return
     if len(sys.argv) < 2:
         print("Ús: python mapa_propi.py Llocs_Notion_final.csv"); sys.exit(1)
     llocs = llegir_llocs(sys.argv[1])
