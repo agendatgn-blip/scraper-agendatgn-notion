@@ -24,6 +24,7 @@ jobs:
         working-directory: primera-fila
     env:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
