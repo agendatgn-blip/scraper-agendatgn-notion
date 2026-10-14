@@ -56,7 +56,7 @@ def mapa(edicio_id, sortida):
     """Executa mapa_setmana.py i torna (dades_json, carpeta) o (None, None)."""
     try:
         subprocess.run([sys.executable, str(AQUI / "mapa_setmana.py"), "--edicio", edicio_id, "--sortida", str(sortida)],
-                       check=True, cwd=AQUI)
+                       check=True, cwd=AQUI, timeout=360)
     except Exception as e:  # noqa: BLE001
         print(f"Avís: el mapa no s'ha pogut generar ({e}). El PDF sortirà sense mapa.")
         return None, None
