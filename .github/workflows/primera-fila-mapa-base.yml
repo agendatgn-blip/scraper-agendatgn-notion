@@ -1,0 +1,37 @@
+name: Primera Fila · preparar mapa base
+
+# Baixa UNA vegada el mapa de Tarragona (carrers, costa, parcs, edificis, tren) d'OpenStreetMap
+# i el desa a primera-fila/mapa_base/tarragona.gpkg. Així el PDF fa el mapa en segons cada setmana.
+# Només cal tornar-lo a llançar si vols el mapa actualitzat (p. ex. un cop l'any).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  base:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: primera-fila
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instal·lar
+        run: pip install -q "osmnx>=2.0" matplotlib
+      - name: Baixar i desar el mapa base
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python mapa_propi.py --base
+      - name: Desar al repo
+        run: |
+          git config user.name "agendatgn-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add mapa_base/tarragona.gpkg
+          git commit -m "Mapa base de Tarragona (OpenStreetMap)" || echo "Sense canvis"
+          git pull --rebase
+          git push

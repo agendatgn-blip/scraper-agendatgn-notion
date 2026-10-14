@@ -47,7 +47,8 @@ jobs:
           path: |
             primera-fila/cache
             ~/.cache/ms-playwright
-          key: primera-fila-v1
+          key: primera-fila-v2-${{ github.run_id }}
+          restore-keys: primera-fila-v2-
 
       - name: Instal·lar
         if: steps.check.outputs.feina == 'true'
