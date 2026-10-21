@@ -77,17 +77,25 @@ def muntar(ed, mapa_dades, mapa_dir):
     nums = (mapa_dades or {}).get("activitat_num", {})
     pagines = []
 
+    # Exposicions: totes les obertes aquella setmana (de l'agenda) + les llargues vinculades a l'edició.
+    # Les d'un sol dia (inauguracions, visites) es queden a la pàgina del seu dia.
+    amagar = ed.get("amagar", set())
+    expos = [] if "Exposicions" in amagar else nd.sense_duplicats(
+        [a for a in ed["activitats"] if nd.es_expo_llarga(a)] + ed.get("expos_setmana", []))
+    ids_expos = {a["id"] for a in expos} | (set() if "Exposicions" in amagar else
+                                             {a["id"] for a in ed["activitats"] if nd.es_expo_llarga(a)})
+    print(f"Exposicions obertes aquesta setmana: {len(expos)}")
+
     # Imatges (en paral·lel i reduïdes)
     nd.precarrega_imatges(([ed["portada"][0]] if ed["portada"] else []) +
-                          [a["imatges"][0] for a in ed["activitats"] if a["imatges"]])
+                          [a["imatges"][0] for a in ed["activitats"] + expos if a["imatges"]])
     ed["portada_uri"] = nd.imatge_data_uri(ed["portada"][0]) if ed["portada"] else None
-    for a in ed["activitats"]:
+    for a in ed["activitats"] + expos:
         a["img"] = nd.imatge_data_uri(a["imatges"][0]) if a["imatges"] else None
         a["hora_curta"] = nd.hora_curta(a["hora"])
 
     # 1-2 · Portada i canal
     pagines.append(T.portada(ctx, ed))
-    amagar = ed.get("amagar", set())
     if amagar:
         print("Seccions amagades:", ", ".join(sorted(amagar)))
     if "Canal WhatsApp" not in amagar:
@@ -101,9 +109,8 @@ def muntar(ed, mapa_dades, mapa_dir):
 
     # Classificar activitats
     # si s'amaguen Exposicions o Festes, aquestes activitats van a la pàgina del seu dia
-    expos = [] if "Exposicions" in amagar else [a for a in ed["activitats"] if "exposici" in (a["categoria"] or "").lower()]
-    festes = [] if "Festes" in amagar else [a for a in ed["activitats"] if a["festa"] and a not in expos]
-    dies = [a for a in ed["activitats"] if a not in expos and a not in festes and a["dia"]]
+    festes = [] if "Festes" in amagar else [a for a in ed["activitats"] if a["festa"] and a["id"] not in ids_expos]
+    dies = [a for a in ed["activitats"] if a["id"] not in ids_expos and a not in festes and a["dia"]]
 
     # 4 · Pàgines de dia (dijous -> diumenge)
     for dia in sorted({a["dia"] for a in dies}):
@@ -132,17 +139,24 @@ def muntar(ed, mapa_dades, mapa_dir):
 
     # 6 · Exposicions
     if expos:
+        def de_mes(d):
+            mes = T.MESOS[d.month - 1]
+            return f"d'{mes}" if mes[0] in "aeiou" else f"de {mes}"
+
         def fila(a):
             if ed["ini"] and a["dia"] and a["dia"] >= ed["ini"]:
-                quan = f"Des del {a['dia'].day} de {T.MESOS[a['dia'].month - 1]}"
+                quan = f"Des del {a['dia'].day} {de_mes(a['dia'])}"
+            elif a["durada"] == "Permanent":
+                quan = "Permanent"
             elif a["fi"]:
-                quan = f"Fins al {a['fi'].day} de {T.MESOS[a['fi'].month - 1]}"
+                quan = f"Fins al {a['fi'].day} {de_mes(a['fi'])}"
             else:
                 quan = ""
             return {"nom": a["nom"], "lloc": a["lloc"], "quan": quan, "preu": a["preu"], "img": a["img"],
                     "reserva": a.get("reserva", "")}
+        expos.sort(key=lambda a: (a["fi"] or ed["fi"], a["nom"] or ""))
         nov = [a for a in expos if ed["ini"] and a["dia"] and a["dia"] >= ed["ini"]]
-        ult = [a for a in expos if a not in nov and a["fi"] and ed["fi"] and a["fi"] <= ed["fi"] + timedelta(days=7)]
+        ult = [a for a in expos if a not in nov and a["durada"] != "Permanent" and a["fi"] and ed["fi"] and a["fi"] <= ed["fi"] + timedelta(days=7)]
         cur = [a for a in expos if a not in nov and a not in ult]
         files = [("NOVETATS", nov), ("EN CURS", cur), ("ÚLTIMS DIES", ult)]
         plans = [(g, [fila(a) for a in l]) for g, l in files]

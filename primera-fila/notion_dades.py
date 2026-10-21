@@ -211,6 +211,76 @@ def minuts(h):
     return ((hh + 24) if hh < 6 else hh) * 60 + int(m.group(2) or 0)
 
 
+# ---------------------------------------------------------------- activitats
+def _activitat(p, llocs, llocs_entrades):
+    rel = P(p, "Lloc (fitxa)") or []
+    lloc_nom = titol(llocs[rel[0]]) if rel and rel[0] in llocs else (P(p, "Lloc") or "")
+    if lloc_nom.lower().startswith("pendent"):
+        lloc_nom = "Lloc per confirmar"
+    return {
+        "id": p["id"], "nom": titol(p),
+        "dia": data_de(P(p, "Data inici")), "fi": data_de(P(p, "Data final")) or data_de(P(p, "Data inici")),
+        "te_final": bool(data_de(P(p, "Data final"))), "durada": P(p, "Tipus durada") or "",
+        "hora": P(p, "Hora") or "", "lloc": lloc_nom, "municipi": P(p, "Municipi") or "",
+        "cat": P(p, "Etiqueta PDF", "Categoria") or "", "categoria": P(p, "Categoria") or "",
+        "preu": preu_text(p), "descripcio": P(p, "Descripció") or "",
+        "destacada": bool(P(p, "Destacada")), "festa": P(p, "Festa / barri") or "",
+        "imatges": P(p, "Imatge") or [],
+        "reserva": entrades_llocs.resol(
+            url_propi=P(p, "URL reserva") or "", preu_text=P(p, "Preu (text)") or "",
+            preu_num=P(p, "Preu"), lloc_text=lloc_nom, lloc_ids=rel, llocs=llocs_entrades),
+    }
+
+
+def es_expo_llarga(a):
+    """Exposició que es pot visitar uns quants dies (no una inauguració o visita d'un sol dia)."""
+    if "exposici" not in (a["categoria"] or "").lower():
+        return False
+    return a["durada"] in ("Diversos dies", "Permanent") or (a["te_final"] and a["fi"] and a["dia"] and a["fi"] > a["dia"])
+
+
+_BUIDES = {"exposicio", "exposicion", "temporal", "de", "del", "la", "el", "les", "els", "i", "a", "d", "l"}
+
+
+def _paraules(nom):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", nom or "").encode("ascii", "ignore").decode().lower()
+    return {w for w in re.findall(r"[a-z0-9]+", t) if w not in _BUIDES and len(w) > 1}
+
+
+def sense_duplicats(acts):
+    """La mateixa exposició entrada dos cops (noms gairebé iguals i mateixa data final): en queda una,
+    la que té imatge o el nom més llarg."""
+    out = []
+    for a in sorted(acts, key=lambda a: (not a["imatges"], -len(a["nom"] or ""))):
+        pa = _paraules(a["nom"])
+        dup = False
+        for b in out:
+            pb = _paraules(b["nom"])
+            if pa and pb and len(pa & pb) / min(len(pa), len(pb)) >= 0.7 and (a["fi"] == b["fi"] or not a["te_final"] or not b["te_final"]):
+                dup = True
+                break
+        if not dup:
+            out.append(a)
+    return out
+
+
+def expos_obertes(n, ini, fi, llocs, llocs_entrades):
+    """Exposicions de l'agenda obertes algun dia entre ini i fi."""
+    pages = n.query(DS_ACTIVITATS, {"and": [
+        {"property": "Categoria", "select": {"equals": "Exposició"}},
+        {"property": "Data inici", "date": {"on_or_before": fi.isoformat()}},
+    ]})
+    acts = []
+    for p in pages:
+        a = _activitat(p, llocs, llocs_entrades)
+        if not es_expo_llarga(a):
+            continue
+        if a["durada"] == "Permanent" or (a["fi"] and a["fi"] >= ini):
+            acts.append(a)
+    return acts
+
+
 # ---------------------------------------------------------------- edició completa
 def carregar_edicio(n, edicio_id=None, estat="Maquetant"):
     if edicio_id:
@@ -247,23 +317,12 @@ def carregar_edicio(n, edicio_id=None, estat="Maquetant"):
     llocs_entrades = entrades_llocs.des_de_pagines(llocs.values(), lambda p, nom: P(p, nom))
 
     # Activitats vinculades a l'edició
-    acts = []
-    for p in n.query(DS_ACTIVITATS, {"property": "Edició Primera Fila", "relation": {"contains": ed["id"]}}):
-        rel = P(p, "Lloc (fitxa)") or []
-        lloc_nom = titol(llocs[rel[0]]) if rel and rel[0] in llocs else (P(p, "Lloc") or "")
-        acts.append({
-            "id": p["id"], "nom": titol(p),
-            "dia": data_de(P(p, "Data inici")), "fi": data_de(P(p, "Data final")) or data_de(P(p, "Data inici")),
-            "hora": P(p, "Hora") or "", "lloc": lloc_nom, "municipi": P(p, "Municipi") or "",
-            "cat": P(p, "Etiqueta PDF", "Categoria") or "", "categoria": P(p, "Categoria") or "",
-            "preu": preu_text(p), "descripcio": P(p, "Descripció") or "",
-            "destacada": bool(P(p, "Destacada")), "festa": P(p, "Festa / barri") or "",
-            "imatges": P(p, "Imatge") or [],
-            "reserva": entrades_llocs.resol(
-                url_propi=P(p, "URL reserva") or "", preu_text=P(p, "Preu (text)") or "",
-                preu_num=P(p, "Preu"), lloc_text=lloc_nom, lloc_ids=rel, llocs=llocs_entrades),
-        })
+    acts = [_activitat(p, llocs, llocs_entrades)
+            for p in n.query(DS_ACTIVITATS, {"property": "Edició Primera Fila", "relation": {"contains": ed["id"]}})]
     dades["activitats"] = acts
+
+    # Totes les exposicions obertes aquella setmana (encara que no estiguin vinculades a l'edició)
+    dades["expos_setmana"] = expos_obertes(n, dades["ini"], dades["fi"], llocs, llocs_entrades) if dades["ini"] else []
 
     # Article
     art = P(ed, "Article") or []
