@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       data:
-        description: "Dia AAAA-MM-DD (buit = avui)"
+        description: "Fer les stories en PNG (pla B). Dia AAAA-MM-DD (buit = avui)"
         required: false
         default: ""
 
