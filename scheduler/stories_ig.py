@@ -2,13 +2,16 @@
 """
 AgendaTGN - Stories "RECOMANATS AVUI" per a Instagram
 =====================================================
-Cada dia a partir de les 8:00 (hora de Tarragona) agafa les activitats d'avui
-marcades com a "Destacada" (i aprovades) a Notion, fa les stories 1080x1920
-amb la imatge de marca (negre, blanc i groc #FFDC00, Anton + Inter, logo),
-màxim 3 activitats per story, i te les envia per Telegram llestes per pujar.
+Les stories editables les fa cada dia a les 8:00 una tasca programada de Claude
+a Canva (a partir de la PLANTILLA · Recomanats avui). Quan acaba, deixa una fila
+al REGISTRE RESUMS amb la clau "stories-canva-AAAA-MM-DD" i els enllaços de Canva.
 
-Només es fa un cop al dia (queda anotat al REGISTRE RESUMS amb la clau
-"stories-ig-AAAA-MM-DD"). Si avui no hi ha destacades, no fa res.
+Aquest script (cada passada del Publish Scheduler, 8:00-12:00):
+  1. Si troba aquesta fila, t'envia l'avís per Telegram amb els enllaços de Canva.
+  2. Si a les 9:30 encara no hi és (Canva ha fallat) i avui hi ha destacades,
+     fa les stories en PNG (negre, blanc i groc #FFDC00, Anton + Inter, logo,
+     màx. 3 activitats per story) i te les envia com a pla B.
+Només avisa un cop al dia (clau "stories-ig-AAAA-MM-DD"). Sense destacades, res.
 
 Ús:
   python scheduler/stories_ig.py                       # automàtic (8:00-12:00, un cop al dia)
@@ -39,6 +42,7 @@ TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID")
 HORA_INICI = 8      # a partir de les 8:00
 HORA_LIMIT = 12     # passades més tard ja no les fan (GitHub endarrerit)
 MAX_PER_STORY = 3
+PLA_B_HORA = (9, 30)  # si a aquesta hora no hi ha les de Canva, s'envien els PNG
 
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
 F_ANTON = os.path.join(ASSETS, "Anton-Regular.ttf")
@@ -312,23 +316,43 @@ def enviar_telegram(imatges, missatge):
 
 
 # ---------------------------------------------------------------- main
+def fila_canva(clau_canva):
+    files = query(DS_REGISTRE, {"property": "Clau", "title": {"equals": clau_canva}})
+    if not files:
+        return None
+    p = files[0]["properties"].get("Text", {}).get("rich_text", [])
+    return "".join(x["plain_text"] for x in p).strip() or "(sense enllaços)"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", help="AAAA-MM-DD (per defecte, avui)")
-    ap.add_argument("--forcar", action="store_true", help="fer-les encara que ja estiguin fetes o fora d'hora")
+    ap.add_argument("--forcar", action="store_true", help="fer els PNG ara, encara que ja s'hagi avisat o fora d'hora")
     ap.add_argument("--local", help="carpeta on desar els PNG (no envia ni registra)")
     args = ap.parse_args()
 
     ara = datetime.now(TZ)
     dia = date.fromisoformat(args.data) if args.data else ara.date()
     clau = f"stories-ig-{dia.isoformat()}"
+    pla_b = args.forcar or args.local
 
-    if not (args.forcar or args.local):
+    if not pla_b:
         if not (HORA_INICI <= ara.hour < HORA_LIMIT):
             print(f"Stories IG: fora d'hora ({ara:%H:%M}).")
             return
         if ja_fet(clau):
-            print(f"{clau}: ja fetes.")
+            print(f"{clau}: ja avisat.")
+            return
+        links = fila_canva(f"stories-canva-{dia.isoformat()}")
+        if links:
+            missatge = ("✅ Ja tens les stories RECOMANATS AVUI fetes a Canva. "
+                        "Repassa-les i publica-les a Instagram:\n\n" + links)
+            enviar_telegram([], missatge)
+            registrar(clau, dia, 0, 0, "Avís Canva enviat\n" + links)
+            print("Stories IG: avís de Canva enviat.")
+            return
+        if (ara.hour, ara.minute) < PLA_B_HORA:
+            print("Stories IG: encara no hi ha les de Canva; s'espera.")
             return
 
     acts = destacades(dia)
@@ -356,12 +380,13 @@ def main():
         print(f"Desades {len(imatges)} stories a {args.local}")
         return
 
-    missatge = (f"✅ Ja tens les stories RECOMANATS AVUI per a Instagram "
+    avis = "" if args.forcar else "⚠️ Les de Canva no s'han fet avui. Aquí tens el pla B en PNG.\n\n"
+    missatge = (f"{avis}✅ Stories RECOMANATS AVUI "
                 f"({len(imatges)} {'story' if len(imatges) == 1 else 'stories'}, "
                 f"{len(acts)} activitats).\n\n{llista}")
     enviar_telegram(imatges, missatge)
     registrar(clau, dia, len(acts), len(imatges), llista)
-    print(f"Stories IG: {len(imatges)} enviades.")
+    print(f"Stories IG: {len(imatges)} PNG enviades.")
 
 
 if __name__ == "__main__":
