@@ -5,7 +5,7 @@ on:
   # cada 15 min de 8:00 a 21:00 (hora de Tarragona), perquè el cron de GitHub
   # arriba amb hores de retard. Aquest de sota només és de reserva.
   # Horari (el decideixen els scripts segons l'hora de Tarragona):
-  #   08:00 resum del dia · 08:15 destacats (dj, dv, ds) · 09:00 posts del dia
+  #   08:00 resum del dia + stories IG · 08:15 destacats (dj, dv, ds) · 09:00 posts del dia
   #   (packs de 5 cada 30 min) · 10:00-13:30 avançaments.
   schedule:
     - cron: "3,33 5-19 * * *"
@@ -55,6 +55,15 @@ jobs:
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
           PUBLICAR_TOT_ARA: ${{ github.event.inputs.publicar_tot_ara }}
         run: python scheduler/resums.py
+
+      - name: Stories IG (recomanats avui, 8:00)
+        continue-on-error: true
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scheduler/stories_ig.py
 
       - name: Posts (del dia i avançaments)
         env:

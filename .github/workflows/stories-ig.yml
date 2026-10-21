@@ -1,0 +1,32 @@
+name: Stories IG (RECOMANATS AVUI)
+
+# Les automàtiques (cada dia a partir de les 8:00) les fa el workflow
+# "Publish Scheduler AgendaTGN". Aquest és per fer-les a mà (refer-les o un altre dia).
+on:
+  workflow_dispatch:
+    inputs:
+      data:
+        description: "Dia AAAA-MM-DD (buit = avui)"
+        required: false
+        default: ""
+
+jobs:
+  stories:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests Pillow
+      - name: Stories
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DATA: ${{ inputs.data }}
+        run: |
+          ARGS="--forcar"
+          if [ -n "$DATA" ]; then ARGS="$ARGS --data $DATA"; fi
+          python scheduler/stories_ig.py $ARGS
