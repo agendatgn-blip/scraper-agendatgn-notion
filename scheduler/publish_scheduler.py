@@ -73,7 +73,8 @@ TWITTER_ACCESS_TOKEN = os.environ.get("TWITTER_ACCESS_TOKEN")
 TWITTER_ACCESS_SECRET = os.environ.get("TWITTER_ACCESS_SECRET")
 
 FACEBOOK_PAGE_ID = os.environ.get("FACEBOOK_PAGE_ID")
-FACEBOOK_PAGE_TOKEN = os.environ.get("FACEBOOK_PAGE_TOKEN")
+FACEBOOK_PAGE_TOKEN = __import__("fb_token").token_pagina(  # token del sistema -> token de Pàgina
+    FACEBOOK_PAGE_ID, os.environ.get("FACEBOOK_PAGE_TOKEN"))
 FACEBOOK_API_VERSION = "v26.0"
 
 # Telegram: t'envia cada post de Facebook perquè el copiïs al GRUP
