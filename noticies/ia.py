@@ -26,7 +26,7 @@ PROVEIDORS = {
     "mistral": ("https://api.mistral.ai/v1/chat/completions", "MISTRAL_API_KEY",
                 "mistral-small-latest", "NOTICIES_MISTRAL_MODEL"),
     "nvidia": ("https://integrate.api.nvidia.com/v1/chat/completions", "NVIDIA_API_KEY",
-               "meta/llama-3.3-70b-instruct", "NOTICIES_NVIDIA_MODEL"),
+               "google/gemma-4-31b-it", "NOTICIES_NVIDIA_MODEL"),
 }
 _FORA = set()   # proveïdors descartats en aquesta execució
 
