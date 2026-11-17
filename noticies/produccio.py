@@ -28,7 +28,7 @@ except Exception:  # noqa: BLE001
     def sembla_castella(_t, minim=2):
         return False
 
-MODEL_ESCRIURE = os.environ.get("NOTICIES_MODEL_ESCRIURE", "openai/gpt-oss-120b")
+MODEL_ESCRIURE = os.environ.get("NOTICIES_MODEL_ESCRIURE") or "openai/gpt-oss-120b"
 
 ENCARREC = """
 ARA NO ESCRIUS UN POST DE L'AGENDA: escrius un CARRUSEL DE NOTÍCIA de 2 slides per a Instagram.
@@ -44,7 +44,9 @@ TEXT: {cos}
 Torna aquest JSON:
 {{"titulars": ["3 titulars diferents per a la portada, de 5 a 8 paraules, en català, sense punt final.
    Cada un amb una fórmula diferent: (a) el fet concret amb una xifra, data o nom; (b) el que torna, s'estrena,
-   obre o canvia; (c) el que ningú t'explica o per què t'afecta. El més important a les primeres paraules."],
+   obre o canvia; (c) el que ningú t'explica o per què t'afecta. El més important a les primeres paraules.
+   Exactament 3. Fidels a la notícia: no canviïs el nom de cap institució, espai o festival (fes servir el que
+   surt a la notícia o la seva sigla), i no diguis 'nou' ni 'obre' si en realitat reobre o torna."],
  "ganxo": "slide 2: 2 o 3 frases (màxim 260 caràcters) amb l'essencial: què passa, on i per què interessa a qui viu a Tarragona",
  "quan": "data o hora SI la notícia la diu (ex. 'Divendres 4 de desembre'); si no, cadena buida",
  "on": "lloc concret SI la notícia el diu (ex. 'Plaça del Rei, Tarragona'); si no, cadena buida",
@@ -89,6 +91,28 @@ def escriure(dades):
     return d, model, motiu
 
 
+def _noms_propis(text):
+    import re as _re
+    paraules = _re.findall(r"[\wÀ-ÿ·'’-]+", text or "")
+    return {p for i, p in enumerate(paraules) if i > 0 and p[:1].isupper() and len(p) > 2}
+
+
+def millor_fidel(titulars, dades):
+    """Tria el titular amb més nota, però penalitza els que porten noms que no surten a la notícia."""
+    from .comu import norm
+    from .ganxo import nota
+    font = norm(" ".join([dades["titol"], dades["resum"], dades["cos"]]))
+    millor_t, millor_n = "", -1
+    for t in titulars:
+        n = nota(t)
+        estranys = [p for p in _noms_propis(t) if norm(p) not in font]
+        n_final = n - 30 * len(estranys)
+        print(f"  titular {n_final:>3} ({n}) {t}" + (f"  · noms que no surten: {estranys}" if estranys else ""))
+        if n_final > millor_n:
+            millor_t, millor_n = t, n_final
+    return millor_t, max(0, millor_n)
+
+
 def copy_de(d, mitja):
     linia = " · ".join(x for x in [f"📍 {d['on']}" if d.get("on") else "", f"📅 {d['quan']}" if d.get("quan") else ""] if x)
     tags = " ".join(t if t.startswith("#") else "#" + t for t in (d.get("hashtags") or ["#Tarragona"])[:5])
@@ -115,7 +139,7 @@ def main():
             tg_text(f"⚠️ Notícies: cap IA respon, la notícia queda «Escollida» per a la pròxima volta.\n{dades['titol']}\n{e}")
             print("Cap IA disponible, plego.")
             return
-        titular, nota = millor(d.get("titulars") or [])
+        titular, nota = millor_fidel((d.get("titulars") or [])[:3], dades)
         if not titular or not d.get("ganxo"):
             notion_update(pid, {"Estat": {"select": {"name": "Error"}},
                                 "Notes": rich("La IA no ha tornat titular o ganxo.")})
