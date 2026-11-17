@@ -50,7 +50,7 @@ Torna aquest JSON:
  "ganxo": "slide 2: 2 o 3 frases (màxim 260 caràcters) amb l'essencial: què passa, on i per què interessa a qui viu a Tarragona",
  "quan": "data o hora SI la notícia la diu (ex. 'Divendres 4 de desembre'); si no, cadena buida",
  "on": "lloc concret SI la notícia el diu (ex. 'Plaça del Rei, Tarragona'); si no, cadena buida",
- "obertura": "primera línia de la caption, curta, que enganxi i que inclogui 'Tarragona' o el municipi",
+ "obertura": "primera línia de la caption: el fet concret en poques paraules, amb 'Tarragona' o el municipi. Mai frases buides com 'Notícia important' o 'Bones notícies'",
  "cos": "2 o 3 frases més de context per a la caption, sense repetir el ganxo",
  "hashtags": ["de 3 a 5 etiquetes locals sense espais, sempre #Tarragona"]}}"""
 
