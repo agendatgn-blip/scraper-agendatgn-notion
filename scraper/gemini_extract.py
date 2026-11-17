@@ -4,6 +4,9 @@
 import os
 import json
 import re
+import time
+
+import requests
 
 from google import genai
 
@@ -11,6 +14,66 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
+
+# Si Gemini va saturat (503/429) es reintenta i, si continua fallant, es passa
+# a una IA de reserva (Groq -> Mistral), la mateixa cadena gratuïta que ja fa
+# servir la resta del repo. Només s'intenten les que tenen clau.
+ESPERES_GEMINI = [5, 20]
+RESERVES = [
+    ("groq", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY",
+     os.environ.get("SCRAPER_GROQ_MODEL", "openai/gpt-oss-20b")),
+    ("mistral", "https://api.mistral.ai/v1/chat/completions", "MISTRAL_API_KEY",
+     os.environ.get("SCRAPER_MISTRAL_MODEL", "mistral-small-latest")),
+]
+
+
+def _es_temporal(e):
+    t = str(e)
+    return any(k in t for k in ("503", "429", "500", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "overloaded"))
+
+
+def _reserva(prompt):
+    errors = []
+    for nom, url, env_clau, model in RESERVES:
+        clau = os.environ.get(env_clau, "").strip()
+        if not clau:
+            continue
+        body = {"model": model, "temperature": 0.2, "max_tokens": 6000,
+                "messages": [{"role": "user", "content": prompt}]}
+        if nom == "groq" and "gpt-oss" in model:
+            body["reasoning_effort"] = "low"
+        for intent in range(2):
+            try:
+                r = requests.post(url, timeout=90, json=body,
+                                  headers={"Authorization": f"Bearer {clau}"})
+            except requests.RequestException as e:
+                errors.append(f"{nom}: {e.__class__.__name__}")
+                break
+            if r.status_code in (429, 500, 502, 503) and intent == 0:
+                time.sleep(10)
+                continue
+            if not r.ok:
+                errors.append(f"{nom}: {r.status_code}")
+                break
+            text = r.json()["choices"][0]["message"]["content"] or ""
+            print(f"    (IA de reserva: {nom} · {model})", flush=True)
+            return text
+    raise RuntimeError("Gemini saturat i cap IA de reserva ha respost"
+                       + (f" ({'; '.join(errors)})" if errors else " (sense claus de reserva)"))
+
+
+def _genera(prompt):
+    """Text de resposta de Gemini, amb reintents i IA de reserva."""
+    for i in range(len(ESPERES_GEMINI) + 1):
+        try:
+            return _client.models.generate_content(model=GEMINI_MODEL, contents=prompt).text
+        except Exception as e:  # noqa: BLE001
+            if not _es_temporal(e):
+                break
+            if i < len(ESPERES_GEMINI):
+                print(f"    Gemini saturat, reintent en {ESPERES_GEMINI[i]} s", flush=True)
+                time.sleep(ESPERES_GEMINI[i])
+    return _reserva(prompt)
 
 PROMPT = """Analitza el text següent, extret de la fitxa d'un acte de l'agenda \
 cultural de l'Ajuntament de Tarragona, i extreu informació per crear una entrada \
@@ -49,8 +112,7 @@ def _neteja_json(text):
 
 def extreu(text_fitxa, url):
     prompt = PROMPT.replace("{URL}", url).replace("{TEXT}", text_fitxa)
-    resposta = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    dades = json.loads(_neteja_json(resposta.text))
+    dades = json.loads(_neteja_json(_genera(prompt)))
 
     # Sanejament defensiu
     if dades.get("confianca_ia") not in ("Alta", "Mitjana", "Baixa"):
@@ -118,8 +180,7 @@ def extreu_llista(text_pagina, enllacos, url, avui):
               .replace("{URL}", url)
               .replace("{TEXT}", text_pagina)
               .replace("{ENLLACOS}", enllacos or "(cap)"))
-    resposta = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    net = _neteja_json_array(resposta.text)
+    net = _neteja_json_array(_genera(prompt))
     activitats = json.loads(net)
     if not isinstance(activitats, list):
         return []

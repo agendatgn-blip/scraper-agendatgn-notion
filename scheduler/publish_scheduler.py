@@ -598,7 +598,7 @@ def post_to_facebook(text, image_bytes=None):
     """Publica a la Pàgina de Facebook. Amb imatge si n'hi ha."""
     if not (FACEBOOK_PAGE_ID and FACEBOOK_PAGE_TOKEN):
         print("  -> Facebook no configurat encara, s'omet.")
-        return
+        return False
     base = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}/{FACEBOOK_PAGE_ID}"
     if image_bytes:
         resp = requests.post(
@@ -615,8 +615,9 @@ def post_to_facebook(text, image_bytes=None):
         )
     if resp.status_code >= 300:
         print(f"  -> ERROR Facebook: {resp.text}")
-    else:
-        print(f"  -> Publicat a la Pàgina de Facebook: {text[:60]}...")
+        return False
+    print(f"  -> Publicat a la Pàgina de Facebook: {text[:60]}...")
+    return True
 
 
 def send_to_telegram_for_group(text, image_bytes=None):
@@ -665,12 +666,15 @@ def publish_everywhere(subtitol, desc, cta, image_bytes, activity, mode, vol_fac
     except Exception as e:  # noqa: BLE001
         print(f" -> Avís Threads: {e}")
         ok["Threads"] = False
-    if vol_facebook:
+    # La Pàgina de Facebook rep SEMPRE els posts. La casella "Facebook" de
+    # l'activitat només decideix si també t'arriba per Telegram per al GRUP.
+    if FACEBOOK_PAGE_ID and FACEBOOK_PAGE_TOKEN:
         try:
             ok["Facebook"] = post_to_facebook(text_llarg, image_bytes=image_bytes)
         except Exception as e:  # noqa: BLE001
             print(f" -> ERROR Facebook: {e!r}")
             ok["Facebook"] = False
+    if vol_facebook:
         send_to_telegram_for_group(text_llarg, image_bytes=image_bytes)
     print("    Resultat: " + ", ".join(f"{k} {'OK' if v else 'ERROR'}" for k, v in ok.items()))
     if any(ok.values()):

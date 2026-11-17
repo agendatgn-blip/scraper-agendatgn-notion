@@ -15,6 +15,7 @@ CaixaForum), es marca la font com a "Revisar estructura" en comptes de forçar
 una extracció poc fiable.
 """
 
+import os
 import time
 import datetime as dt
 
@@ -39,10 +40,31 @@ def log(msg):
     print(f"[{dt.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def _html_firecrawl(url):
+    """Pla B per a webs que bloquegen el bot (403, com CaixaForum o Tarragona Turisme)."""
+    clau = os.environ.get("FIRECRAWL_API_KEY", "").strip()
+    if not clau:
+        return None
+    r = requests.post("https://api.firecrawl.dev/v1/scrape", timeout=90,
+                      headers={"Authorization": f"Bearer {clau}"},
+                      json={"url": url, "formats": ["html"], "onlyMainContent": False})
+    if not r.ok:
+        log(f"  Firecrawl: {r.status_code} {r.text[:150]}")
+        return None
+    return (r.json().get("data") or {}).get("html") or None
+
+
 def _llegeix_pagina(url):
-    r = requests.get(url, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        html = r.text
+    except requests.RequestException as e:
+        html = _html_firecrawl(url)
+        if not html:
+            raise
+        log(f"  Lectura directa fallida ({e.__class__.__name__}); llegida amb Firecrawl.")
+    soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
     cos = soup.find(id="content") or soup.find("main") or soup.body
