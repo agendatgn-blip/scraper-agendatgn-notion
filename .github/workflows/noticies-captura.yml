@@ -1,0 +1,35 @@
+name: Notícies culturals · 1 · Captura
+
+# Llegeix les fonts 3 cops al dia (7, 13 i 19 h a l'hivern; 8, 14 i 20 h a l'estiu).
+# La primera del matí també envia el top 5 per Telegram.
+on:
+  schedule:
+    - cron: "0 6,12,18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: noticies-captura
+  cancel-in-progress: false
+
+jobs:
+  captura:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUNBUFFERED: "1"
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      NOTICIES_GROQ_MODEL: ${{ vars.NOTICIES_GROQ_MODEL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m noticies.captura

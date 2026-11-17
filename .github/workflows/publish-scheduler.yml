@@ -82,3 +82,21 @@ jobs:
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
           PUBLICAR_TOT_ARA: ${{ github.event.inputs.publicar_tot_ara }}
         run: python scheduler/publish_scheduler.py
+
+      - name: Notícies culturals (carrusels de les escollides)
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          PYTHONUNBUFFERED: "1"
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NOTICIES_MODEL_ESCRIURE: ${{ vars.NOTICIES_MODEL_ESCRIURE }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+        run: python -m noticies.produccio
