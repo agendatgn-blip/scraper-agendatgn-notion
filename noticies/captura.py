@@ -18,10 +18,13 @@ from .config import (CATEGORIES, CULTURA, EXCLOURE, FEEDS, HORES_ENRERE, MAX_NOT
 from .ia import SenseIA, json_ia
 
 INICI = time.time()
+PAUSA_IA = 3   # segons entre crides (límit per minut dels plans gratuïts)
 ARA = datetime.now(timezone.utc)
 
 SISTEMA = """Ets l'editor de notícies culturals d'@agendatgn, l'agenda cultural no oficial de Tarragona.
 Valores notícies per publicar-les a Instagram per a gent de Tarragona i rodalia (Camp de Tarragona).
+Territori: Tarragona ciutat i el Camp de Tarragona (Tarragonès, Baix Camp, Alt Camp, Baix Penedès, Conca de Barberà,
+Priorat). Fora d'aquí, "tarragona" és false.
 Només interessa la CULTURA: concerts, festivals, teatre, dansa, cinema, museus, exposicions, patrimoni,
 llibres, festes populars i tradicionals, espais culturals que obren o tanquen, programacions, entrades a la venda.
 NO interessa: política, partits, eleccions, plens, successos, accidents, judicis, esports, economia general,
@@ -31,7 +34,8 @@ Respon NOMÉS amb un objecte JSON."""
 USUARI = """Valora aquesta notícia i respon amb aquest JSON:
 {{"cultural": true/false, "tarragona": true/false, "categoria": una de {cats},
  "puntuacio": enter 0-5 (interès per a Instagram: útil, proper, sorprenent, amb data o novetat; 0 si no és cultura de Tarragona),
- "resum": "dues frases en català, reescrites, sense inventar res"}}
+ "resum": "dues frases en català, reescrites, sense inventar res",
+ "clau": "de 3 a 6 paraules en català que identifiquin el FET (no el mitjà), p. ex. 'REC entrades inauguració cloenda'"}}
 
 MITJÀ: {mitja}
 TITULAR: {titol}
@@ -126,12 +130,30 @@ def _pagina(url, tros, mitja):
     return out[:10]
 
 
+def _paraules_clau(text):
+    m = re.search(r"Clau: (.+)", text or "")
+    return set(norm(m.group(1)).split()) - {"de", "del", "la", "el", "les", "els", "a", "i", "per", "en"} if m else set()
+
+
+def es_repetida(clau, claus):
+    """Mateix fet ja recollit (encara que sigui d'un altre mitjà o en una altra llengua)."""
+    if not clau:
+        return False
+    for c in claus:
+        comuns = len(clau & c)
+        if comuns >= 2 and comuns / max(1, min(len(clau), len(c))) >= 0.6:
+            return True
+    return False
+
+
 def main():
     print("== Captura de notícies culturals ==")
     recents = notion_query({"page_size": 100, "filter": {"timestamp": "created_time", "created_time": {
         "on_or_after": (ARA - timedelta(days=30)).isoformat()}}})
     ja_links = {txt(p, "Enllaç") for p in recents}
     ja_titols = {norm(txt(p, "Títol")) for p in recents}
+    claus = [_paraules_clau(txt(p, "Notes")) for p in recents]
+    claus = [c for c in claus if c]
     print(f"{len(recents)} notícies dels últims 30 dies a Notion")
 
     candidates = []
@@ -167,10 +189,17 @@ def main():
             print("Cap IA disponible, plego:", e)
             tg_text(f"⚠️ Notícies culturals: cap IA respon ({str(e)[:200]}). Valorades {i - 1}/{len(noves)}, creades {creades}.")
             break
+        time.sleep(PAUSA_IA)
         punts = int(ia.get("puntuacio") or 0)
         if not ia.get("cultural") or not ia.get("tarragona") or punts < PUNTUACIO_MINIMA:
             print(f"   descartada ({punts})")
             continue
+        clau = _paraules_clau("Clau: " + str(ia.get("clau") or ""))
+        if es_repetida(clau, claus):
+            print(f"   repetida ({ia.get('clau')})")
+            continue
+        if clau:
+            claus.append(clau)
         props = {
             "Títol": title(n["titol"]),
             "Enllaç": {"url": n["link"]},
@@ -182,8 +211,11 @@ def main():
         }
         if not n.get("sense_data"):
             props["Data"] = {"date": {"start": n["data"].isoformat()}}
-        if n["font"] != n["mitja"]:
-            props["Notes"] = rich(f"Mitjà original: {n['font']}")
+        notes = [f"Mitjà original: {n['font']}"] if n["font"] != n["mitja"] else []
+        if ia.get("clau"):
+            notes.append(f"Clau: {ia['clau']}")
+        if notes:
+            props["Notes"] = rich("\n".join(notes))
         if ia.get("categoria") in CATEGORIES:
             props["Categoria"] = {"select": {"name": ia["categoria"]}}
         try:

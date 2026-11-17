@@ -47,7 +47,7 @@ def _crida(nom, sistema, usuari, model=None, max_tokens=900):
     if nom == "groq" and "gpt-oss" in model:
         body["reasoning_effort"] = "low"
     h = {"Authorization": f"Bearer {os.environ[env_clau]}", "Content-Type": "application/json"}
-    for intent in range(2):
+    for intent in range(3):
         try:
             r = requests.post(url, headers=h, json=body, timeout=TIMEOUT)
         except (requests.Timeout, requests.ConnectionError) as e:
@@ -56,11 +56,14 @@ def _crida(nom, sistema, usuari, model=None, max_tokens=900):
                 continue
             raise RuntimeError(f"{nom}: sense connexió ({e.__class__.__name__})")
         if r.status_code == 429:
-            diari = any(k in r.text.lower() for k in ("per day", "perday", "daily", "tokens per day", "rpd", "tpd"))
-            if diari or intent > 0:
+            t = r.text.lower()
+            diari = any(k in t for k in ("per day", "perday", "daily", "(tpd)", "(rpd)", "requests per day", "tokens per day"))
+            if diari:
                 _FORA.add(nom)
-                raise RuntimeError(f"{nom}: quota esgotada")
-            espera = min(int(float(r.headers.get("retry-after", "20") or 20)), 30)
+                raise RuntimeError(f"{nom}: quota diària esgotada")
+            if intent == 2:
+                raise RuntimeError(f"{nom}: massa peticions per minut")
+            espera = min(max(int(float(r.headers.get("retry-after", "15") or 15)), 10), 30)
             print(f"  {nom} 429 per minut, espero {espera} s")
             time.sleep(espera)
             continue
@@ -69,10 +72,9 @@ def _crida(nom, sistema, usuari, model=None, max_tokens=900):
                 time.sleep(5)
                 continue
             raise RuntimeError(f"{nom}: error {r.status_code}")
-        if r.status_code in (400, 401, 403, 404, 422):
+        if 400 <= r.status_code < 500:
             _FORA.add(nom)
             raise RuntimeError(f"{nom}: {r.status_code} {r.text[:200]}")
-        r.raise_for_status()
         contingut = r.json()["choices"][0]["message"]["content"]
         return _json(contingut), f"{nom} · {model}"
     raise RuntimeError(f"{nom}: no respon")
@@ -87,7 +89,7 @@ def json_ia(sistema, usuari, primer_model=None, max_tokens=900):
         try:
             return _crida(nom, sistema, usuari, model=primer_model if nom == "groq" else None,
                           max_tokens=max_tokens)
-        except (RuntimeError, ValueError, KeyError) as e:
+        except (RuntimeError, ValueError, KeyError, IndexError, TypeError) as e:
             print("  IA:", e)
             errors.append(str(e)[:120])
     raise SenseIA("; ".join(errors) or "cap proveïdor configurat")

@@ -103,7 +103,9 @@ def main():
     for p in pagines:
         pid = p["id"]
         notes = txt(p, "Notes")
-        mitja = notes.replace("Mitjà original: ", "") if notes.startswith("Mitjà original: ") else txt(p, "Mitjà")
+        import re as _re
+        m = _re.search(r"Mitjà original: (.+)", notes)
+        mitja = m.group(1).strip() if m else txt(p, "Mitjà")
         dades = dict(mitja=mitja, titol=txt(p, "Títol"), resum=txt(p, "Resum"),
                      cos=article_text(txt(p, "Enllaç")) or "(no disponible; fes servir el resum)")
         print("·", dades["titol"][:90])
