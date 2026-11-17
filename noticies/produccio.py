@@ -106,7 +106,7 @@ def millor_fidel(titulars, dades):
     for t in titulars:
         n = nota(t)
         estranys = [p for p in _noms_propis(t) if norm(p) not in font]
-        n_final = n - 30 * len(estranys)
+        n_final = n - 30 * len(estranys) - (100 if _prohibida(t) else 0)
         print(f"  titular {n_final:>3} ({n}) {t}" + (f"  · noms que no surten: {estranys}" if estranys else ""))
         if n_final > millor_n:
             millor_t, millor_n = t, n_final
