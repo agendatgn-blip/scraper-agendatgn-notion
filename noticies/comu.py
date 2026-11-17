@@ -34,6 +34,11 @@ def notion_query(body, maxim=300):
             b["start_cursor"] = cursor
         r = requests.post(f"https://api.notion.com/v1/databases/{NOTION_DB}/query",
                           headers=NOTION_H, json=b, timeout=30)
+        if r.status_code == 404:
+            msg = ("⚠️ Notícies culturals: la integració de GitHub no veu la base «📰 Notícies culturals TGN». "
+                   "A Notion: obre la base → ··· → Connexions → afegeix la mateixa connexió que fa servir l'INBOX.")
+            tg_text(msg)
+            raise SystemExit(msg)
         r.raise_for_status()
         d = r.json()
         out += d["results"]
