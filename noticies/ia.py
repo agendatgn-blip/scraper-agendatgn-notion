@@ -80,10 +80,10 @@ def _crida(nom, sistema, usuari, model=None, max_tokens=900):
     raise RuntimeError(f"{nom}: no respon")
 
 
-def json_ia(sistema, usuari, primer_model=None, max_tokens=900):
+def json_ia(sistema, usuari, primer_model=None, max_tokens=900, ordre=("groq", "mistral", "nvidia")):
     """Torna (dict, 'proveïdor · model'). Prova la cadena fins que un respon. Llança SenseIA si cap."""
     errors = []
-    for nom in ("groq", "mistral", "nvidia"):
+    for nom in ordre:
         if nom in _FORA or not os.environ.get(PROVEIDORS[nom][1], "").strip():
             continue
         try:

@@ -74,17 +74,23 @@ def _revisa(d):
     return None
 
 
+# Qui escriu: primer Gemma (NVIDIA, gratis i bo en català), després Groq i Mistral
+ORDRE_ESCRIURE = tuple(x.strip() for x in (os.environ.get("NOTICIES_ORDRE_ESCRIURE") or "nvidia,groq,mistral").split(","))
+
+
 def escriure(dades):
     sistema = _guia() + "\n" + ENCARREC
     usuari = USUARI.format(**dades)
-    d, model = json_ia(sistema, usuari, primer_model=MODEL_ESCRIURE, max_tokens=1200)
+    d, model = json_ia(sistema, usuari, primer_model=MODEL_ESCRIURE, max_tokens=1200, ordre=ORDRE_ESCRIURE)
     motiu = _revisa(d)
     if motiu:
         print("  reescric:", motiu)
         try:
-            d2, model = json_ia(sistema, usuari + "\n\nCORRECCIÓ: " + motiu, primer_model=MODEL_ESCRIURE,
-                                max_tokens=1200)
-            d = d2
+            d2, model2 = json_ia(sistema, usuari + "\n\nCORRECCIÓ: " + motiu, primer_model=MODEL_ESCRIURE,
+                                 max_tokens=1200, ordre=ORDRE_ESCRIURE)
+            if not _revisa(d2):
+                return d2, model2, None
+            d, model = d2, model2
             motiu = _revisa(d)
         except SenseIA:
             pass
