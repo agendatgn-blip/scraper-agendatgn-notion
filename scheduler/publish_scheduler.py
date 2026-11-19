@@ -857,6 +857,11 @@ def main():
     ara = ara_local()
     avui = ara.date()
     print(f"Executant scheduler — {ara:%Y-%m-%d %H:%M} (hora de Tarragona)")
+    try:
+        import x_pub
+        x_pub.netejar_cua()
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Avís netejant la Cua X: {e!r}")
     activities = query_approved_activities()
     print(f"Activitats aprovades trobades: {len(activities)}")
     pendents = sorted((p for page in activities for p in pendents_de(page)), key=lambda x: x[0])

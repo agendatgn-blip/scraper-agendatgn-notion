@@ -177,6 +177,42 @@ def publicar_cua(text, image_bytes=None, reply_to=None):
     return fals
 
 
+def netejar_cua():
+    """Marca com a Descartat els tuits Pendents de dies anteriors, perquè la
+    cua no s'acumuli (només es publica a mà el del dia). Mai peta."""
+    if MODE != "cua" or not os.environ.get("NOTION_TOKEN"):
+        return 0
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    avui = datetime.now(ZoneInfo("Europe/Madrid")).date().isoformat()
+    n = 0
+    try:
+        cursor = None
+        while True:
+            body = {"filter": {"and": [
+                {"property": "Estat", "select": {"equals": "Pendent"}},
+                {"property": "Data", "date": {"before": avui}}]}, "page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            r = requests.post(f"https://api.notion.com/v1/data_sources/{DS_CUA_X}/query",
+                              headers=_notion_h(), json=body, timeout=30)
+            r.raise_for_status()
+            d = r.json()
+            for pg in d.get("results", []):
+                requests.patch(f"https://api.notion.com/v1/pages/{pg['id']}", headers=_notion_h(),
+                               json={"properties": {"Estat": {"select": {"name": "Descartat"}}}},
+                               timeout=30)
+                n += 1
+            if not d.get("has_more"):
+                break
+            cursor = d.get("next_cursor")
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Cua X: no s'ha pogut netejar ({e!r})")
+    if n:
+        print(f"  -> Cua X: {n} tuits pendents de dies anteriors marcats com a Descartat.")
+    return n
+
+
 def publicar(text, image_bytes=None, reply_to=None):
     """Punt d'entrada únic: cua (per defecte) o API segons X_MODE. Mai peta."""
     if MODE == "api":
