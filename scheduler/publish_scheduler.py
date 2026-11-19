@@ -653,11 +653,17 @@ def publish_everywhere(subtitol, desc, cta, image_bytes, activity, mode, vol_fac
     text_x = compon_post(activity, subtitol, desc, cta, mode, limit=280, mida=_x_len)
     text_llarg = compon_post(activity, subtitol, desc, cta, mode)
     ok = {}
-    try:
-        ok["X"] = post_to_twitter(text_x, image_bytes=image_bytes)
-    except Exception as e:  # noqa: BLE001
-        print(f" -> ERROR X: {e!r}")
-        ok["X"] = False
+    # Cua curta d'X (19/11/2026): X es publica a mà des de Chrome, així que
+    # només hi van els posts DEL DIA de les activitats DESTACADES.
+    # Els avançaments i la resta van només a Threads i Facebook.
+    if mode == "dia" and activity.get("destacada"):
+        try:
+            ok["X"] = post_to_twitter(text_x, image_bytes=image_bytes)
+        except Exception as e:  # noqa: BLE001
+            print(f" -> ERROR X: {e!r}")
+            ok["X"] = False
+    else:
+        print("  -> X: no va a la cua (només posts del dia de destacades).")
     try:
         import threads_pub
         if threads_pub.configurat():
@@ -825,6 +831,7 @@ def publica(page, mode):
     categoria = get_prop_text(props, "Categoria") or ""
     activity["categoria"] = categoria
     vol_facebook = get_prop_text(props, "Facebook")
+    activity["destacada"] = bool(get_prop_text(props, "Destacada"))
 
     image_bytes = get_activity_image_bytes(
         props, nom, categoria, etiqueta_data(data_inici, activity["hora"]))

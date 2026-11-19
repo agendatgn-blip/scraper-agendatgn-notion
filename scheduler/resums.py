@@ -399,10 +399,14 @@ def publicar(tipus, clau, dia, acts, tuits, fb, titol, etiqueta, prev, fil_threa
         previsualitzar(tuits, fb, fil_threads)
         return
     imatge = generate_template_image(titol, etiqueta)
-    try:
-        publicar_fil_x(tuits, imatge)
-    except Exception as e:  # noqa: BLE001 (un error a X no atura Threads ni Facebook)
-        print(f"  -> ERROR X: {e}")
+    # Cua curta d'X (19/11/2026): a X només hi va el fil "Avui a Tarragona".
+    if tipus == "Resum del dia":
+        try:
+            publicar_fil_x(tuits, imatge)
+        except Exception as e:  # noqa: BLE001 (un error a X no atura Threads ni Facebook)
+            print(f"  -> ERROR X: {e}")
+    else:
+        print("  -> X: aquest resum no va a la cua (només el fil del dia).")
     try:
         import threads_pub
         if fil_threads and threads_pub.configurat():
