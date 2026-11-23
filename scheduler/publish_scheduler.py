@@ -864,7 +864,32 @@ def main():
         print(f"  -> Avís netejant la Cua X: {e!r}")
     activities = query_approved_activities()
     print(f"Activitats aprovades trobades: {len(activities)}")
-    pendents = sorted((p for page in activities for p in pendents_de(page)), key=lambda x: x[0])
+    # 🎪 Programes agrupats (23/11/2026): un post del programa sencer (5 dies abans
+    # + primer dia) i, de les seves activitats, només les Destacades tenen post propi.
+    import programes_pub
+    try:
+        programes = programes_pub.carrega_agrupats(sys.modules[__name__])
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Avís: no s'han pogut llegir els 🎪 Programes ({e!r}). Es publica sense agrupar.")
+        programes = []
+    fin = programes_pub.finestres(programes)
+    if fin:
+        print(f"Programes agrupats amb dates: {len(fin)}")
+        try:
+            programes_pub.publica_programes(sys.modules[__name__], programes, activities, ara)
+        except Exception as e:  # noqa: BLE001
+            print(f"  -> ERROR publicant programes: {e!r}")
+
+    def individual(page):
+        if not programes_pub.dins_programa(sys.modules[__name__], page, fin):
+            return True
+        return bool(get_prop_text(page["properties"], "Destacada"))
+
+    saltades = [pg for pg in activities if not individual(pg)]
+    if saltades:
+        print(f"Activitats sense post propi (van dins el post del seu programa): {len(saltades)}")
+    pendents = sorted((p for page in activities if individual(page) for p in pendents_de(page)),
+                      key=lambda x: x[0])
     dia = [p for p in pendents if p[2] == "dia"]
     avanc = [p for p in pendents if p[2] == "avancament"]
     ja_dia = sum(1 for page in activities
