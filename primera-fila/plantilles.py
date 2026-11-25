@@ -41,6 +41,11 @@ html, body { margin:0; padding:0; background:var(--crema); }
 .media { background:var(--blau); overflow:hidden; flex-shrink:0; }
 .card.feat .media { background:var(--rosa); }
 .media img { width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(1) contrast(1.2) brightness(1.05); mix-blend-mode:screen; }
+/* Ajust intel·ligent de les imatges (script AJUST): fons difuminat quan la foto no encaixa */
+.fitbox { position:relative; overflow:hidden; }
+.fitbox > img.fons { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:blur(10px) grayscale(1) brightness(.85);
+                     transform:scale(1.15); opacity:.55; }
+.fitbox > img.fitted { position:relative; z-index:1; }
 .media.buit { background:repeating-linear-gradient(45deg,#1F4FC1 0 10px,#5A80D9 10px 20px); }
 /* Imatge tipus: quan l'activitat no té imatge pròpia */
 .media.tipus { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
@@ -135,7 +140,7 @@ def media(img, h=None, w=None, cat=""):
 # ---------------------------------------------------------------- 1 · portada
 def portada(ctx, ed):
     img = ed.get("portada_uri")
-    foto = (f'<img src="{img}" style="width:100%;height:100%;object-fit:cover;display:block">' if img
+    foto = (f'<img class="fit" src="{img}" style="width:100%;height:100%;object-fit:cover;display:block">' if img
             else '<div class="hatch-p" style="width:100%;height:100%"></div>')
     return f"""<section class="pg" style="padding:34px 44px 30px;align-items:center;gap:10px">
 <span style="font-family:'Anton',sans-serif;font-size:124px;line-height:1;text-shadow:5px 5px 0 var(--rosa);white-space:nowrap">PRIMERA FILA</span>
@@ -301,7 +306,7 @@ def pagina_museus(ctx, grups):
 
 # ---------------------------------------------------------------- negoci
 def pagina_negoci(ctx, b):
-    foto = (f'<img src="{b["foto_uri"]}" style="width:100%;height:100%;object-fit:cover;display:block">' if b.get("foto_uri")
+    foto = (f'<img class="fit" src="{b["foto_uri"]}" style="width:100%;height:100%;object-fit:cover;display:block">' if b.get("foto_uri")
             else '<div class="hatch-p" style="width:100%;height:100%"></div>')
     demanar = "".join(f'<span style="border:2px dashed var(--blau);font-weight:800;font-size:13px;padding:4px 10px">{e(x.strip())}</span>'
                       for x in b["demanar"].split(",") if x.strip())
@@ -330,7 +335,7 @@ def pagina_ofertes(ctx, ofertes, pag, total):
     cards = ""
     for i, o in enumerate(ofertes):
         img = o.get("img")
-        foto = (f'<div style="width:190px;flex-shrink:0;overflow:hidden"><img src="{img}" style="width:100%;height:100%;object-fit:cover;display:block"></div>'
+        foto = (f'<div style="width:190px;flex-shrink:0;overflow:hidden"><img class="fit" src="{img}" style="width:100%;height:100%;object-fit:cover;display:block"></div>'
                 if img else f'<div class="{"hatch-b" if i % 2 == 0 else "hatch-p"}" style="width:190px;flex-shrink:0"></div>')
         cards += f"""<div style="display:flex;height:158px;border:2px dashed var(--blau);flex-shrink:0">{foto}
 <div style="flex-grow:1;min-width:0;padding:12px 16px;display:flex;flex-direction:column;gap:5px">
@@ -408,8 +413,46 @@ def contraportada(ctx, o):
 <span>PRIMERA FILA // @AGENDATGN</span><span>SETMANA {e(ctx["dates"])} · {{{{PAG}}}}</span></div></section>"""
 
 
+# Ajusta cada foto al seu espai abans de fer el PDF:
+#  - si la forma de la foto és molt diferent de la del forat (p. ex. un cartell vertical en un
+#    espai apaïsat), es mostra SENCERA (contain) sobre un fons de la mateixa imatge difuminada,
+#    perquè es vegin els títols del cartell;
+#  - si s'assemblen, omple l'espai (cover) però centrada; en fotos verticals es mira més
+#    amunt (35 %), que és on solen anar els títols i les cares.
+AJUST = """<script>
+(function () {
+  function ajusta(img) {
+    var caixa = img.parentElement, r = caixa.getBoundingClientRect();
+    if (!img.naturalWidth || !r.width || !r.height) return;
+    var ri = img.naturalWidth / img.naturalHeight, rc = r.width / r.height;
+    var q = Math.max(ri / rc, rc / ri);
+    if (q >= 1.35) {
+      var fons = img.cloneNode();
+      fons.className = 'fons';
+      fons.removeAttribute('style');
+      caixa.classList.add('fitbox');
+      caixa.insertBefore(fons, img);
+      img.classList.add('fitted');
+      img.style.objectFit = 'contain';
+      img.style.objectPosition = '50% 50%';
+    } else {
+      img.style.objectFit = 'cover';
+      img.style.objectPosition = ri < 1 ? '50% 35%' : '50% 50%';
+    }
+  }
+  function tot() {
+    document.querySelectorAll('.media img, img.fit').forEach(function (img) {
+      if (img.complete) ajusta(img); else img.addEventListener('load', function () { ajusta(img); });
+    });
+    document.body.setAttribute('data-ajustat', '1');
+  }
+  if (document.readyState === 'complete') tot(); else window.addEventListener('load', tot);
+})();
+</script>"""
+
+
 def document(pagines):
     cos = ""
     for i, p in enumerate(pagines, 1):
         cos += p.replace("{{PAG}}", str(i))
-    return f'<!doctype html><html lang="ca"><head><meta charset="utf-8">{FONTS}<style>{CSS}</style></head><body>{cos}</body></html>'
+    return f'<!doctype html><html lang="ca"><head><meta charset="utf-8">{FONTS}<style>{CSS}</style></head><body>{cos}{AJUST}</body></html>'

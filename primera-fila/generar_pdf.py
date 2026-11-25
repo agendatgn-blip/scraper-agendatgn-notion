@@ -235,6 +235,10 @@ def a_pdf(html, sortida_pdf):
         pg = nav.new_page()
         pg.goto(html_path.resolve().as_uri(), wait_until="networkidle", timeout=180_000)
         pg.evaluate("document.fonts.ready")
+        try:  # espera que el script AJUST hagi col·locat les imatges
+            pg.wait_for_selector("body[data-ajustat]", state="attached", timeout=30_000)
+        except Exception as e:  # noqa: BLE001
+            print(f"Avís: no s'ha confirmat l'ajust d'imatges ({e!r})")
         pg.wait_for_timeout(1500)
         pg.pdf(path=str(sortida_pdf), format="A4", print_background=True, prefer_css_page_size=True)
         nav.close()
