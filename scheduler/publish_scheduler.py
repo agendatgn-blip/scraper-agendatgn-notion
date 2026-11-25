@@ -653,17 +653,17 @@ def publish_everywhere(subtitol, desc, cta, image_bytes, activity, mode, vol_fac
     text_x = compon_post(activity, subtitol, desc, cta, mode, limit=280, mida=_x_len)
     text_llarg = compon_post(activity, subtitol, desc, cta, mode)
     ok = {}
-    # Cua curta d'X (19/11/2026): X es publica a mà des de Chrome, així que
-    # només hi van els posts DEL DIA de les activitats DESTACADES.
-    # Els avançaments i la resta van només a Threads i Facebook.
-    if mode == "dia" and activity.get("destacada"):
+    # X (25/11/2026): per no gastar el límit gratuït, a X només hi van les
+    # activitats DESTACADES (recomanades): el post del dia i l'avís de 5 dies.
+    # La resta va només a Threads i Facebook.
+    if activity.get("destacada"):
         try:
             ok["X"] = post_to_twitter(text_x, image_bytes=image_bytes)
         except Exception as e:  # noqa: BLE001
             print(f" -> ERROR X: {e!r}")
             ok["X"] = False
     else:
-        print("  -> X: no va a la cua (només posts del dia de destacades).")
+        print("  -> X: no va a la cua (només destacades: dia i 5 dies abans).")
     try:
         import threads_pub
         if threads_pub.configurat():
