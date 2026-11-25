@@ -2,15 +2,19 @@ name: Stories per activitat (7:00)
 
 # Una story per cada activitat recomanada del dia, enviada per Telegram entre
 # les 7:00 i les 8:00 (hora de Tarragona). El cron de GitHub va en UTC i sovint
-# arriba tard, per això hi ha diverses passades: l'script només envia a partir de
+# arriba tard, per això hi ha diverses passades (i una crida de cron-job.org a les 7:00): l'script només envia a partir de
 # les 7:00 i un sol cop al dia (si ja s'han enviat, no fa res).
 on:
   schedule:
     - cron: "0,10,20,30,40,50 5,6 * * *"
   workflow_dispatch:
     inputs:
+      forcar:
+        description: "Tornar-les a fer i enviar encara que ja s'hagin enviat"
+        type: boolean
+        default: false
       data:
-        description: "Dia AAAA-MM-DD (buit = avui). Les torna a fer i enviar."
+        description: "Dia AAAA-MM-DD (buit = avui)"
         required: false
         default: ""
 
@@ -33,10 +37,10 @@ jobs:
           NOTION_ACTIVITATS_DB_ID: ${{ secrets.NOTION_ACTIVITATS_DB_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+          FORCAR: ${{ inputs.forcar }}
           DATA: ${{ inputs.data }}
         run: |
           ARGS="--nomes-activitats"
-          if [ "$MANUAL" = "true" ]; then ARGS="$ARGS --forcar"; fi
+          if [ "$FORCAR" = "true" ]; then ARGS="$ARGS --forcar"; fi
           if [ -n "$DATA" ]; then ARGS="$ARGS --data $DATA"; fi
           python scheduler/stories_ig.py $ARGS
