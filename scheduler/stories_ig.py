@@ -44,6 +44,7 @@ TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID")
 
 HORA_INICI = 8      # a partir de les 8:00
 HORA_LIMIT = 12     # passades més tard ja no les fan (GitHub endarrerit)
+HORA_ACTIVITATS = 7  # stories per activitat: a partir de les 7:00 (workflow propi a les 7)
 MAX_PER_STORY = 3
 PLA_B_HORA = (9, 30)  # si a aquesta hora no hi ha les de Canva, s'envien els PNG
 
@@ -330,6 +331,8 @@ ETIQUETA = {
     "Taller": "TALLERS", "Gastronomia": "GASTRONOMIA", "Mercat": "MERCATS",
     "Conferència": "CONFERÈNCIES", "Dansa": "DANSA", "Art": "ART", "Festa popular": "FESTA POPULAR",
 }
+# Colors de fons que es van alternant (story 1 rosa, 2 blau, 3 negre, 4 rosa...)
+COLORS_STORY = [(110, 28, 72), (20, 42, 104), (24, 24, 24)]
 DIES_CURTS = ["DL", "DT", "DC", "DJ", "DV", "DS", "DG"]
 MESOS_CURTS = ["GEN", "FEB", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OCT", "NOV", "DES"]
 
@@ -346,18 +349,18 @@ def baixa_imatge(url):
         return None
 
 
-def story_activitat(dia, a):
+def story_activitat(dia, a, k=0):
     """Story 1080x1920 d'una activitat recomanada.
     Fons: la mateixa imatge, ampliada, desenfocada i enfosquida. A sobre, el cartell
     sencer (sense retallar) a l'espai lliure de dalt; a sota, etiqueta, títol, data,
     lloc i preu. El text queda fora de les zones que tapa Instagram (dalt i baix)."""
-    from PIL import ImageFilter, ImageOps
+    from PIL import ImageFilter
     foto = baixa_imatge(a.get("imatge"))
-    if foto:
-        fons = ImageOps.fit(foto, (W, H), Image.LANCZOS).filter(ImageFilter.GaussianBlur(40))
-        fons = Image.blend(fons, Image.new("RGB", (W, H), NEGRE), 0.55)
-    else:
-        fons = Image.new("RGB", (W, H), (20, 20, 20))
+    # Fons de color que va alternant (rosa, blau, negre) perquè no siguin totes iguals
+    color = COLORS_STORY[k % len(COLORS_STORY)]
+    clar = Image.new("RGB", (W, H), color)
+    fosc_c = Image.new("RGB", (W, H), tuple(int(v * 0.55) for v in color))
+    fons = Image.composite(fosc_c, clar, Image.linear_gradient("L").resize((W, H)))
     c = fons.convert("RGBA")
     d = ImageDraw.Draw(c)
     ample = W - 2 * MARGE
@@ -465,10 +468,12 @@ def enviar_telegram(imatges, missatge, prefix="recomanats", captions=None):
 # ---------------------------------------------------------------- main
 def stories_activitats(dia, ara, args):
     """Una story per cada activitat recomanada (Destacada) del dia, enviada per
-    Telegram. Un cop al dia (clau "stories-act-AAAA-MM-DD"), de 8:00 a 12:00."""
+    Telegram. Un cop al dia (clau "stories-act-AAAA-MM-DD"). Les fa el workflow
+    "Stories per activitat" a partir de les 7:00; si GitHub s'endarrereix, les
+    passades del Publish Scheduler les recuperen fins a les 12:00."""
     clau = f"stories-act-{dia.isoformat()}"
     if not (args.forcar or args.local):
-        if not (HORA_INICI <= ara.hour < HORA_LIMIT):
+        if not (HORA_ACTIVITATS <= ara.hour < HORA_LIMIT):
             return
         if ja_fet(clau):
             print(f"{clau}: ja enviades.")
@@ -477,7 +482,7 @@ def stories_activitats(dia, ara, args):
     if not acts:
         print(f"Stories per activitat: cap destacada per a {dia}.")
         return
-    imatges = [story_activitat(dia, a) for a in acts]
+    imatges = [story_activitat(dia, a, k) for k, a in enumerate(acts)]
     if args.local:
         os.makedirs(args.local, exist_ok=True)
         for k, png in enumerate(imatges, 1):
@@ -505,6 +510,8 @@ def main():
     ap.add_argument("--data", help="AAAA-MM-DD (per defecte, avui)")
     ap.add_argument("--forcar", action="store_true", help="fer els PNG ara, encara que ja s'hagi avisat o fora d'hora")
     ap.add_argument("--local", help="carpeta on desar els PNG (no envia ni registra)")
+    ap.add_argument("--nomes-activitats", action="store_true",
+                    help="només les stories per activitat (workflow de les 7:00)")
     args = ap.parse_args()
 
     ara = datetime.now(TZ)
@@ -516,6 +523,8 @@ def main():
         stories_activitats(dia, ara, args)
     except Exception as e:  # noqa: BLE001 (no atura les de RECOMANATS AVUI)
         print(f"  -> ERROR stories per activitat: {e!r}")
+    if args.nomes_activitats:
+        return
 
     if not pla_b:
         if not (HORA_INICI <= ara.hour < HORA_LIMIT):
