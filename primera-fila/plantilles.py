@@ -41,11 +41,6 @@ html, body { margin:0; padding:0; background:var(--crema); }
 .media { background:var(--blau); overflow:hidden; flex-shrink:0; }
 .card.feat .media { background:var(--rosa); }
 .media img { width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(1) contrast(1.2) brightness(1.05); mix-blend-mode:screen; }
-/* Ajust intel·ligent de les imatges (script AJUST): fons difuminat quan la foto no encaixa */
-.fitbox { position:relative; overflow:hidden; }
-.fitbox > img.fons { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:blur(10px) grayscale(1) brightness(.85);
-                     transform:scale(1.15); opacity:.55; }
-.fitbox > img.fitted { position:relative; z-index:1; }
 .media.buit { background:repeating-linear-gradient(45deg,#1F4FC1 0 10px,#5A80D9 10px 20px); }
 /* Imatge tipus: quan l'activitat no té imatge pròpia */
 .media.tipus { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
@@ -140,7 +135,7 @@ def media(img, h=None, w=None, cat=""):
 # ---------------------------------------------------------------- 1 · portada
 def portada(ctx, ed):
     img = ed.get("portada_uri")
-    foto = (f'<img class="fit" src="{img}" style="width:100%;height:100%;object-fit:cover;display:block">' if img
+    foto = (f'<img src="{img}" style="width:100%;height:100%;object-fit:cover;display:block">' if img
             else '<div class="hatch-p" style="width:100%;height:100%"></div>')
     return f"""<section class="pg" style="padding:34px 44px 30px;align-items:center;gap:10px">
 <span style="font-family:'Anton',sans-serif;font-size:124px;line-height:1;text-shadow:5px 5px 0 var(--rosa);white-space:nowrap">PRIMERA FILA</span>
@@ -413,32 +408,61 @@ def contraportada(ctx, o):
 <span>PRIMERA FILA // @AGENDATGN</span><span>SETMANA {e(ctx["dates"])} · {{{{PAG}}}}</span></div></section>"""
 
 
-# Ajusta cada foto al seu espai abans de fer el PDF:
-#  - si la forma de la foto és molt diferent de la del forat (p. ex. un cartell vertical en un
-#    espai apaïsat), es mostra SENCERA (contain) sobre un fons de la mateixa imatge difuminada,
-#    perquè es vegin els títols del cartell;
-#  - si s'assemblen, omple l'espai (cover) però centrada; en fotos verticals es mira més
-#    amunt (35 %), que és on solen anar els títols i les cares.
+# Ajusta cada foto al seu espai abans de fer el PDF. La foto SEMPRE omple l'espai (cover);
+# el que canvia és quina part es veu:
+#  - si la imatge té text (un cartell amb títol), es busca la franja amb més "lletra"
+#    (moltes vores fines i alternades) i es centra aquesta franja a l'espai;
+#  - si és una foto sense text clar, es centra la imatge.
 AJUST = """<script>
 (function () {
+  function puntuacio(img, vertical) {
+    // energia de "text" per files (vertical) o columnes (horitzontal)
+    var N = 160, w, h;
+    if (img.naturalWidth >= img.naturalHeight) { w = N; h = Math.max(8, Math.round(N * img.naturalHeight / img.naturalWidth)); }
+    else { h = N; w = Math.max(8, Math.round(N * img.naturalWidth / img.naturalHeight)); }
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var x = c.getContext('2d'); x.drawImage(img, 0, 0, w, h);
+    var d; try { d = x.getImageData(0, 0, w, h).data; } catch (e) { return null; }
+    var g = new Float32Array(w * h);
+    for (var i = 0; i < w * h; i++) g[i] = 0.3 * d[i * 4] + 0.59 * d[i * 4 + 1] + 0.11 * d[i * 4 + 2];
+    var n = vertical ? h : w, m = vertical ? w : h, s = new Float32Array(n);
+    for (var a = 0; a < n; a++) {
+      var canvis = 0, prev = 0;
+      for (var b = 1; b < m; b++) {
+        var p = vertical ? a * w + b : b * w + a, q = vertical ? a * w + b - 1 : (b - 1) * w + a;
+        var dif = g[p] - g[q], sg = dif > 40 ? 1 : (dif < -40 ? -1 : 0);
+        if (sg && sg !== prev) { canvis++; prev = sg; }
+      }
+      s[a] = canvis * canvis;  // al quadrat: destaca les franges amb text (molts canvis seguits)
+    }
+    return s;
+  }
   function ajusta(img) {
-    var caixa = img.parentElement, r = caixa.getBoundingClientRect();
+    img.style.objectFit = 'cover';
+    var r = img.parentElement.getBoundingClientRect();
     if (!img.naturalWidth || !r.width || !r.height) return;
     var ri = img.naturalWidth / img.naturalHeight, rc = r.width / r.height;
-    var q = Math.max(ri / rc, rc / ri);
-    if (q >= 1.35) {
-      var fons = img.cloneNode();
-      fons.className = 'fons';
-      fons.removeAttribute('style');
-      caixa.classList.add('fitbox');
-      caixa.insertBefore(fons, img);
-      img.classList.add('fitted');
-      img.style.objectFit = 'contain';
-      img.style.objectPosition = '50% 50%';
-    } else {
-      img.style.objectFit = 'cover';
-      img.style.objectPosition = ri < 1 ? '50% 35%' : '50% 50%';
+    var vertical = ri < rc;               // sobra imatge per dalt i per baix
+    var frac = vertical ? ri / rc : rc / ri;  // part visible (0-1) de l'eix retallat
+    if (frac > 0.97) { img.style.objectPosition = '50% 50%'; return; }
+    var s = puntuacio(img, vertical);
+    var pos = 0.5;
+    if (s) {
+      var n = s.length, fin = Math.max(1, Math.round(n * frac)), tot = 0, i;
+      for (i = 0; i < n; i++) tot += s[i];
+      var mitja = tot / n, acum = 0, millor = -1, ini = 0;
+      for (i = 0; i < fin; i++) acum += s[i];
+      for (var k = 0; k + fin <= n; k++) {
+        if (k) acum += s[k + fin - 1] - s[k - 1];
+        if (acum > millor) { millor = acum; ini = k; }
+      }
+      var centre = Math.round((n - fin) / 2), acC = 0;
+      for (i = centre; i < centre + fin; i++) acC += s[i];
+      // Només es mou si hi ha text clar (moltes vores) i la franja millor guanya bé al centre
+      if (mitja > 16 && millor > acC * 1.25 && n > fin) pos = ini / (n - fin);
     }
+    var pc = Math.round(pos * 100) + '%';
+    img.style.objectPosition = vertical ? ('50% ' + pc) : (pc + ' 50%');
   }
   function tot() {
     document.querySelectorAll('.media img, img.fit').forEach(function (img) {
