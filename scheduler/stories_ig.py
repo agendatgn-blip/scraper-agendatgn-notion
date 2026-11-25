@@ -18,6 +18,9 @@ Només avisa un cop al dia (clau "stories-ig-AAAA-MM-DD"). Sense destacades, res
   python scheduler/stories_ig.py --forcar              # ara mateix, encara que ja s'hagi fet
   python scheduler/stories_ig.py --data 2026-10-24 --forcar
   python scheduler/stories_ig.py --local carpeta/      # només desa els PNG (no envia ni registra)
+
+A més (25/11/2026), cada dia envia una STORY PER ACTIVITAT recomanada, amb el
+mateix disseny que la imatge dels posts d'X però en vertical (clau "stories-act-AAAA-MM-DD").
 """
 import argparse
 import os
@@ -173,6 +176,22 @@ def es_duplicat(a, b):
     return comuns >= 0.8 or (comuns >= 0.5 and a["min"] == b["min"])
 
 
+def url_imatge(p):
+    """URL del primer fitxer del camp 'Imatge' (enllaços de Drive i tarragona.cat
+    convertits a descàrrega directa, com al Publish Scheduler)."""
+    v = p["properties"].get("Imatge") or {}
+    fitxers = v.get("files") or []
+    if not fitxers:
+        return None
+    f = fitxers[0]
+    url = (f.get("external") or f.get("file") or {}).get("url")
+    m = re.search(r"drive\.google\.com/(?:file/d/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})", url or "")
+    if m:
+        return f"https://drive.usercontent.google.com/download?id={m.group(1)}&export=view"
+    m = re.match(r"(https?://(?:www\.)?tarragona\.cat/.+?)/imatge/?$", url or "")
+    return f"{m.group(1)}/@@images/imatge/large" if m else url
+
+
 def destacades(dia):
     pages = query(DS_ACTIVITATS, {"and": [
         {"property": "Destacada", "checkbox": {"equals": True}},
@@ -193,6 +212,8 @@ def destacades(dia):
             "min": minuts(hora),
             "lloc": lloc_curt(lloc),
             "preu": preu_curt(prop(p, "Preu (text)"), prop(p, "Preu")),
+            "categoria": prop(p, "Categoria") or "",
+            "imatge": url_imatge(p),
         })
     acts.sort(key=lambda a: (a["min"], a["nom"]))
     nets = []
@@ -299,8 +320,133 @@ def fer_story(dia, acts, i, n):
     return out.getvalue()
 
 
+
+# ------------------------------------------------- story per activitat (estil X)
+# Mateix disseny que la imatge dels posts d'X (etiqueta groga de categoria,
+# títol en blanc, data en franja groga, logo), però en vertical 1080x1920.
+ETIQUETA = {
+    "Música": "MÚSICA", "Teatre": "TEATRE", "Exposició": "EXPOSICIONS", "Cinema": "CINEMA",
+    "Patrimoni": "PATRIMONI", "Literatura": "LITERATURA", "Familiar": "ACTIVITATS FAMILIARS",
+    "Taller": "TALLERS", "Gastronomia": "GASTRONOMIA", "Mercat": "MERCATS",
+    "Conferència": "CONFERÈNCIES", "Dansa": "DANSA", "Art": "ART", "Festa popular": "FESTA POPULAR",
+}
+DIES_CURTS = ["DL", "DT", "DC", "DJ", "DV", "DS", "DG"]
+MESOS_CURTS = ["GEN", "FEB", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OCT", "NOV", "DES"]
+
+
+def baixa_imatge(url):
+    if not url:
+        return None
+    try:
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        return Image.open(BytesIO(r.content)).convert("RGB")
+    except Exception as e:  # noqa: BLE001
+        print(f"  -> Avís: no s'ha pogut baixar la imatge ({e!r}); fons de marca.")
+        return None
+
+
+def story_activitat(dia, a):
+    """Story 1080x1920 d'una activitat recomanada.
+    Fons: la mateixa imatge, ampliada, desenfocada i enfosquida. A sobre, el cartell
+    sencer (sense retallar) a l'espai lliure de dalt; a sota, etiqueta, títol, data,
+    lloc i preu. El text queda fora de les zones que tapa Instagram (dalt i baix)."""
+    from PIL import ImageFilter, ImageOps
+    foto = baixa_imatge(a.get("imatge"))
+    if foto:
+        fons = ImageOps.fit(foto, (W, H), Image.LANCZOS).filter(ImageFilter.GaussianBlur(40))
+        fons = Image.blend(fons, Image.new("RGB", (W, H), NEGRE), 0.55)
+    else:
+        fons = Image.new("RGB", (W, H), (20, 20, 20))
+    c = fons.convert("RGBA")
+    d = ImageDraw.Draw(c)
+    ample = W - 2 * MARGE
+
+    # 1) Maquetació del text, de baix cap amunt (només mesures)
+    peu_y = H - 230                       # per sobre de la barra de resposta d'Instagram
+    lloc = f"{a['lloc']} · {a['preu']}" if a.get("lloc") else a["preu"]
+    fl, ll = ajusta(d, lloc, F_INTER_B, 44, ample, 2)
+    y_lloc = peu_y - 40 - len(ll) * alt_linia(fl)
+    hora = a["hora"] if a["hora"] and a["hora"][0].isdigit() else ""
+    data_txt = f"{DIES_CURTS[dia.weekday()]} {dia.day} {MESOS_CURTS[dia.month - 1]}"
+    data_txt += f" · {hora} H" if hora else ""
+    fd = font(F_ANTON, 58)
+    y_data = y_lloc - 36 - 92
+    ft, lt = ajusta(d, a["nom"].upper(), F_ANTON, 124, ample, 3)
+    y_titol = y_data - 34 - len(lt) * alt_linia(ft, 0.92)
+    etiqueta = ETIQUETA.get(a.get("categoria"), "")
+    y_etiq = y_titol - 86 if etiqueta else y_titol
+    text_top = y_etiq - 20
+
+    # 2) Cartell sencer a l'espai lliure de dalt
+    zona_top = 230
+    zona_h = max(300, text_top - 50 - zona_top)
+    if foto:
+        cart = foto.copy()
+        cart.thumbnail((ample, zona_h), Image.LANCZOS)
+        if cart.width < ample * 0.6 and cart.height < zona_h * 0.6:   # imatges petites: amplia
+            k = min(ample / cart.width, zona_h / cart.height)
+            cart = cart.resize((int(cart.width * k), int(cart.height * k)), Image.LANCZOS)
+        x = (W - cart.width) // 2
+        y = zona_top + (zona_h - cart.height) // 2
+        ombra = Image.new("RGBA", (cart.width + 60, cart.height + 60), (0, 0, 0, 0))
+        ImageDraw.Draw(ombra).rectangle((30, 30, cart.width + 30, cart.height + 30), fill=(0, 0, 0, 160))
+        c.alpha_composite(ombra.filter(ImageFilter.GaussianBlur(16)), (x - 30, y - 18))
+        c.paste(cart, (x, y))
+    elif os.path.exists(LOGO):
+        m = min(620, zona_h)
+        logo = Image.open(LOGO).convert("RGBA").resize((m, m), Image.LANCZOS)
+        logo.putalpha(logo.getchannel("A").point(lambda v: v * 0.18))
+        c.alpha_composite(logo, ((W - m) // 2, zona_top + (zona_h - m) // 2))
+
+    # 3) Degradat negre des de just sobre el text fins a baix
+    grad = Image.new("L", (1, H))
+    ini = max(0, text_top - 40)
+    for yy in range(H):
+        t = min(1.0, max(0.0, (yy - ini) / 200))
+        grad.putpixel((0, yy), int(235 * t))
+    fosc = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+    fosc.putalpha(grad.resize((W, H)))
+    c = Image.alpha_composite(c, fosc)
+    d = ImageDraw.Draw(c)
+
+    # 4) Capçalera: RECOMANAT AVUI + logo
+    if os.path.exists(LOGO):
+        logo = Image.open(LOGO).convert("RGBA").resize((130, 130), Image.LANCZOS)
+        c.alpha_composite(logo, (W - 130 - MARGE + 10, 50))
+    fr = font(F_ANTON, 58)
+    tw = d.textlength("RECOMANAT AVUI", font=fr)
+    d.rectangle((MARGE, 80, MARGE + tw + 40, 160), fill=GROC)
+    d.text((MARGE + 20, 120), "RECOMANAT AVUI", font=fr, fill=NEGRE, anchor="lm")
+
+    # 5) Text
+    if etiqueta:
+        fe = font(F_ANTON, 46)
+        tw = d.textlength(etiqueta, font=fe)
+        d.rectangle((MARGE, y_etiq, MARGE + tw + 36, y_etiq + 66), fill=BLANC)
+        d.text((MARGE + 18, y_etiq + 33), etiqueta, font=fe, fill=NEGRE, anchor="lm")
+    y = y_titol
+    for l in lt:
+        d.text((MARGE, y), l, font=ft, fill=BLANC)
+        y += alt_linia(ft, 0.92)
+    tw = d.textlength(data_txt, font=fd)
+    d.rectangle((MARGE, y_data, MARGE + tw + 48, y_data + 92), fill=GROC)
+    d.text((MARGE + 24, y_data + 46), data_txt, font=fd, fill=NEGRE, anchor="lm")
+    y = y_lloc
+    for l in ll:
+        d.text((MARGE, y), l, font=fl, fill=BLANC)
+        y += alt_linia(fl)
+    d.line((MARGE, peu_y, W - MARGE, peu_y), fill=GROC, width=3)
+    d.text((MARGE, peu_y + 40), "TOTA L'AGENDA A @AGENDATGN", font=font(F_INTER_B, 34),
+           fill=BLANC, anchor="lm")
+
+    out = BytesIO()
+    c.convert("RGB").save(out, "PNG", optimize=True)
+    return out.getvalue()
+
+
 # ---------------------------------------------------------------- Telegram
-def enviar_telegram(imatges, missatge):
+def enviar_telegram(imatges, missatge, prefix="recomanats", captions=None):
     if not (TG_TOKEN and TG_CHAT):
         print("Avís: falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID. No s'envia res.")
         return
@@ -308,14 +454,44 @@ def enviar_telegram(imatges, missatge):
     # Com a document: Telegram no comprimeix la imatge (qualitat per a Instagram)
     for k, png in enumerate(imatges, 1):
         requests.post(f"{api}/sendDocument", timeout=120,
-                      data={"chat_id": TG_CHAT, "caption": f"Story {k}/{len(imatges)}"},
-                      files={"document": (f"recomanats_{k}.png", png, "image/png")}
+                      data={"chat_id": TG_CHAT,
+                            "caption": (captions[k - 1] if captions else f"Story {k}/{len(imatges)}")},
+                      files={"document": (f"{prefix}_{k}.png", png, "image/png")}
                       ).raise_for_status()
     requests.post(f"{api}/sendMessage", timeout=30,
                   json={"chat_id": TG_CHAT, "text": missatge}).raise_for_status()
 
 
 # ---------------------------------------------------------------- main
+def stories_activitats(dia, ara, args):
+    """Una story per cada activitat recomanada (Destacada) del dia, enviada per
+    Telegram. Un cop al dia (clau "stories-act-AAAA-MM-DD"), de 8:00 a 12:00."""
+    clau = f"stories-act-{dia.isoformat()}"
+    if not (args.forcar or args.local):
+        if not (HORA_INICI <= ara.hour < HORA_LIMIT):
+            return
+        if ja_fet(clau):
+            print(f"{clau}: ja enviades.")
+            return
+    acts = destacades(dia)
+    if not acts:
+        print(f"Stories per activitat: cap destacada per a {dia}.")
+        return
+    imatges = [story_activitat(dia, a) for a in acts]
+    if args.local:
+        os.makedirs(args.local, exist_ok=True)
+        for k, png in enumerate(imatges, 1):
+            with open(os.path.join(args.local, f"activitat_{dia}_{k}.png"), "wb") as fh:
+                fh.write(png)
+        print(f"Desades {len(imatges)} stories per activitat a {args.local}")
+        return
+    llista = "\n".join(f"• {a['nom']} · {a['hora']} · {a['lloc']}" for a in acts)
+    enviar_telegram(imatges, f"📲 Stories per activitat ({len(imatges)} recomanades d'avui).\n\n{llista}",
+                    prefix="activitat", captions=[a["nom"][:1000] for a in acts])
+    registrar(clau, dia, len(acts), len(imatges), "Stories per activitat\n" + llista)
+    print(f"Stories per activitat: {len(imatges)} PNG enviades.")
+
+
 def fila_canva(clau_canva):
     files = query(DS_REGISTRE, {"property": "Clau", "title": {"equals": clau_canva}})
     if not files:
@@ -335,6 +511,11 @@ def main():
     dia = date.fromisoformat(args.data) if args.data else ara.date()
     clau = f"stories-ig-{dia.isoformat()}"
     pla_b = args.forcar or args.local
+
+    try:
+        stories_activitats(dia, ara, args)
+    except Exception as e:  # noqa: BLE001 (no atura les de RECOMANATS AVUI)
+        print(f"  -> ERROR stories per activitat: {e!r}")
 
     if not pla_b:
         if not (HORA_INICI <= ara.hour < HORA_LIMIT):
